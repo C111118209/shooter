@@ -1,3 +1,7 @@
+to do
+- tnt texture 
+- explode texture and animation
+
 
 lazy to do
 - bow animation

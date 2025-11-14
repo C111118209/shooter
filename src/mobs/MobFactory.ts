@@ -4,6 +4,7 @@ import { ZombieMob } from "./Zombie";
 import { SkeletonMob } from "./Skeleton";
 import { CreeperMob } from "./Creeper";
 import { SpiderMob } from "./Spider";
+import type { Player } from "../player/Player";
 
 /**
  * 🏭 MobFactory：工廠模式實作
@@ -18,7 +19,7 @@ export class MobFactory {
     name: string,
     scene: Phaser.Scene,
     pos: { x: number; y: number },
-    player: Phaser.GameObjects.Sprite
+    player: Player
   ): BaseMob {
     let mob: BaseMob;
 

@@ -12,10 +12,11 @@ export class SkeletonMob extends BaseMob {
   private lastShotTime: number = 0;
   private shotCooldown: number = 1000; // 1 秒射擊間隔
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
-    super(scene, x, y, "skeleton");
+  constructor(scene: Phaser.Scene, x: number, y: number, damage = 0) {
+    super(scene, x, y, "skeleton", damage);
     this.speed = 40;
     this.setWeapon(new BowStrategy(), "bow");
+    this.attackDamage = 5;
   }
 
   public override updateBehavior() {

@@ -6,16 +6,17 @@ import type {
   IWeaponStrategy,
 } from "../weapons/IWeaponStrategy";
 import { ArrowMob } from "./ArrowMob";
+import type GameScene from "../scenes/GameScene";
 
 /**
  * 🧱 BaseMob：所有怪物的基底類別
  */
 export abstract class BaseMob
   extends Phaser.Physics.Arcade.Sprite
-  implements IWeaponHolder
-{
+  implements IWeaponHolder {
   public hp: number = 100;
   public speed: number = 50;
+  public attackDamage: number = 5;
   protected target?: Player;
   protected sceneRef: Phaser.Scene;
 
@@ -31,10 +32,11 @@ export abstract class BaseMob
     return this;
   }
 
-  constructor(scene: Phaser.Scene, x: number, y: number, texture: string) {
+  constructor(scene: Phaser.Scene, x: number, y: number, texture: string, damage = 5) {
     super(scene, x, y, texture);
 
     this.sceneRef = scene;
+    this.attackDamage = damage;
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
@@ -96,7 +98,7 @@ export abstract class BaseMob
 
   /** 行為更新（預設為追擊玩家） */
   public updateBehavior() {
-    if (!this.target) return;
+    if ((this.scene as GameScene).isPaused || !this.target) return;
 
     // 如果持有武器，更新武器旋轉
     if (this.weaponSprite) {
@@ -108,11 +110,13 @@ export abstract class BaseMob
 
   /** 承受傷害 */
   public takeDamage(dmg: number) {
-    // ... (保持不變)
     this.hp -= dmg;
 
     this.setTint(0xdd0000);
-    this.sceneRef.time.delayedCall(100, () => this.clearTint());
+    this.sceneRef.time.delayedCall(100, () => {
+      this.clearTint()
+      this.setData("hit", false);
+    });
 
     if (this.hp <= 0) {
       // 銷毀武器 Sprite

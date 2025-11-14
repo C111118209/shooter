@@ -4,28 +4,30 @@ import type { IWeaponStrategy, IWeaponHolder } from "./IWeaponStrategy";
 
 /** ⚔ 劍：近戰 */
 export class SwordStrategy implements IWeaponStrategy {
-  private damage: number = 40; // 傷害值
+  private damage: number = 20; // 傷害值
   private swingRate: number = 300; // 揮劍間隔
   private lastSwing: number = 0;
 
-  // 移除 pointer 和 target，因為近戰攻擊不需要瞄準，只需要揮動
-  attack(scene: Phaser.Scene, holder: IWeaponHolder) {
-    // 檢查 holder 是否為 Player (只有 Player 才有 weaponSprite 和 swordHitBox 管理)
-    // 為了簡化，我們假設只有玩家使用劍，或者怪物需要自己實作近戰邏輯。
-    // 在您的 Player 類別中，`swordHitBox` 是公有屬性，所以我們可以直接使用。
-
-    if (!holder.swordHitBox) return; // 如果已經有攻擊判定區，則等待上次攻擊結束
+  attack(scene: Phaser.Scene, holder: IWeaponHolder, pointer?: Phaser.Input.Pointer) {
+    // 如果已經有攻擊判定區，則等待上次攻擊結束
+    if (holder.swordHitBox) return;
 
     const now = scene.time.now;
     if (now - this.lastSwing < this.swingRate) return;
     this.lastSwing = now;
 
-    // 假設 holder.sprite.rotation 已經被 Player.updateWeaponRotation 設置好
-    const currentRotation = holder.sprite.rotation;
+    // 使用滑鼠指針計算攻擊方向，如果沒有指針則使用預設方向（向右）
+    let currentRotation = 0;
+    if (pointer) {
+      currentRotation = Phaser.Math.Angle.Between(
+        holder.x,
+        holder.y,
+        pointer.worldX,
+        pointer.worldY
+      );
+    }
 
-    // 為了讓怪物也能使用，我們需要一個通用的方式獲取攻擊方向。
-    // 對於玩家，我們假設 weaponSprite (或 holder.sprite) 的 rotation 已經設定好。
-    const attackDistance = 50; // 固定距離
+    const attackDistance = 100; // 攻擊判定區距離玩家的距離
 
     // 1. 創建一個近戰判定區 (Zone)
     holder.swordHitBox = scene.add.zone(
@@ -43,9 +45,54 @@ export class SwordStrategy implements IWeaponStrategy {
 
     // 設置傷害值
     holder.swordHitBox.setData("damage", this.damage);
-    holder.swordHitBox.setData("hit", false); // 避免重複傷害
 
-    // 2. 設置定時器，短暫出現後移除
+    // 2. 創建劍的揮動動畫
+    if (holder.weaponSprite) {
+      const weaponSprite = holder.weaponSprite;
+      const baseRotation = currentRotation;
+      const swingAngle = Math.PI / 3; // 揮動角度（60度）
+      
+      // 標記開始揮動動畫（如果 holder 有 isSwinging 屬性）
+      if ('isSwinging' in holder && typeof (holder as any).isSwinging === 'boolean') {
+        (holder as any).isSwinging = true;
+      }
+
+      // 揮動動畫：先向前揮，再收回
+      scene.tweens.add({
+        targets: weaponSprite,
+        rotation: baseRotation + swingAngle / 2, // 向前揮
+        duration: 75,
+        ease: "Power2",
+        onComplete: () => {
+          // 收回動畫
+          scene.tweens.add({
+            targets: weaponSprite,
+            rotation: baseRotation - swingAngle / 2, // 收回
+            duration: 75,
+            ease: "Power2",
+            onComplete: () => {
+              // 動畫結束，恢復正常旋轉控制
+              if ('isSwinging' in holder && typeof (holder as any).isSwinging === 'boolean') {
+                (holder as any).isSwinging = false;
+              }
+            }
+          });
+        }
+      });
+
+      // 可選：添加輕微的縮放效果（讓揮動更明顯）
+      const originalScale = weaponSprite.scaleX;
+      scene.tweens.add({
+        targets: weaponSprite,
+        scaleX: originalScale * 1.1,
+        scaleY: originalScale * 1.1,
+        duration: 75,
+        yoyo: true,
+        ease: "Power2"
+      });
+    }
+
+    // 3. 設置定時器，短暫出現後移除攻擊判定區
     scene.time.delayedCall(150, () => {
       if (holder.swordHitBox) {
         holder.swordHitBox.destroy();

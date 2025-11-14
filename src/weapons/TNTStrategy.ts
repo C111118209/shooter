@@ -59,13 +59,6 @@ export class TNTStrategy implements IWeaponStrategy {
       tnt.damage = this.damage;
       tnt.explosionRadius = this.explosionRadius;
 
-      // 移除: 1 秒後觸發爆炸事件
-      // scene.time.delayedCall(1000, () => {
-      //   // 發射事件，由 GameScene 處理碰撞邏輯
-      //   tnt.emit("explode", tnt);
-      //   tnt.destroy();
-      // });
-
       // 改為: 設置一個最大存活時間，防止 TNT 永遠飛下去
       // 例如 5 秒後自動爆炸並銷毀 (可選)
       scene.time.delayedCall(5000, () => {

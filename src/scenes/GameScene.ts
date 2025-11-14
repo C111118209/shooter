@@ -3,12 +3,12 @@ import { MobFactory } from "../mobs/MobFactory";
 import { BaseMob } from "../mobs/BaseMob";
 import { ArrowMob } from "../mobs/ArrowMob";
 import { SkeletonMob } from "../mobs/Skeleton";
-import { CreeperMob } from "../mobs/Creeper";
 
 import { Player } from "../player/Player";
 import { BowStrategy } from "../weapons/BowStrategy";
 import { SwordStrategy } from "../weapons/SwordStrategy";
 import { TNTStrategy } from "../weapons/TNTStrategy";
+import { XpMob } from "../mobs/XpMob";
 
 type WASD = {
   up: Phaser.Input.Keyboard.Key;
@@ -43,9 +43,11 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  private isPaused: boolean = true;
+  public isPaused: boolean = true;
   private pauseKey!: Phaser.Input.Keyboard.Key;
-  private playerIsInvulnerable: boolean = false;
+
+  // 🆕 gameTick 系統：管理所有受遊戲暫停控制的計時器
+  private gameTimers: Phaser.Time.TimerEvent[] = [];
 
   constructor() {
     super("GameScene");
@@ -64,6 +66,7 @@ export default class GameScene extends Phaser.Scene {
     this.load.image("bow", "assets/weapons/bow.webp");
     this.load.image("iron_sword", "assets/weapons/iron_sword.webp");
     this.load.image("tnt", "https://labs.phaser.io/assets/sprites/block.png");
+    this.load.image("xp_ball", "assets/mobs/xp_ball.png");
   }
 
   create() {
@@ -71,15 +74,20 @@ export default class GameScene extends Phaser.Scene {
     this.isPaused = true;
     this._score = 0;
     this.enemies = [];
-    this.playerIsInvulnerable = false;
+    // 清理所有 gameTick 計時器
+    this.gameTimers.forEach((timer) => {
+      if (timer && !timer.hasDispatched) {
+        timer.destroy();
+      }
+    });
+    this.gameTimers = [];
 
     this.physics.world.setBounds(0, 0, this.scale.width, this.scale.height);
     this.cameras.main.setBackgroundColor("#4488AA");
 
     // 初始化玩家 (會順便創建 weaponSprite)
     this.playerObj = new Player(this, 400, 300, "steve", new BowStrategy());
-    this.playerObj.setWeapon(new BowStrategy(), "bow");
-    this.events.emit("weapon-change", { key: "bow", name: "🏹 弓" });
+    // 這些將被移到 startGame() 中執行，確保 UIScene 已經準備好接收事件。
     this.playerObj.sprite.setActive(false).setVisible(false); // 初始隱藏玩家，直到遊戲開始
 
     // 怪物群組初始化
@@ -113,12 +121,7 @@ export default class GameScene extends Phaser.Scene {
     // 遊戲開始事件 (由 UIScene 的主選單觸發)
     this.events.once("game-started", this.startGame, this);
 
-    // 初始血量/分數發送 (供 UI 初始化)
-    this.events.emit("update-stats", {
-      health: this.playerObj.health,
-      maxHealth: this.playerObj.maxHealth,
-      score: this._score,
-    });
+    this.events.once("player-die", this.handlePlayerDeath, this);
 
     // 初始暫停，等待主選單
     this.physics.pause();
@@ -127,6 +130,18 @@ export default class GameScene extends Phaser.Scene {
   private startGame() {
     this.isPaused = false;
     this.playerObj.sprite.setActive(true).setVisible(true); // 顯示玩家
+
+    // 修正: 延遲武器初始化，確保 UIScene 元素在事件發送時已經存在。
+    this.playerObj.setWeapon(new BowStrategy(), "bow");
+    this.events.emit("weapon-change", { key: "bow", name: "🏹 弓" });
+
+    // 修正: 在遊戲真正開始時，同步一次 HUD 狀態
+    this.events.emit("update-stats", {
+      health: this.playerObj.health,
+      maxHealth: this.playerObj.maxHealth,
+      score: this._score,
+    });
+
     this.physics.resume();
     this.startMobSpawning();
   }
@@ -201,7 +216,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   update() {
-    // 修正 3: 確保遊戲結束或暫停時，update 邏輯停止
+    // 關鍵修正點: 確保遊戲結束或暫停時，update 邏輯停止
     if (this.isPaused || this.playerObj.isDead) {
       this.playerObj.sprite.setVelocity(0, 0);
       this.playerObj.weaponSprite.setVisible(false);
@@ -213,6 +228,7 @@ export default class GameScene extends Phaser.Scene {
     this.playerObj.move(this.cursors, this.wasd, speed);
     this.playerObj.updateWeaponRotation(this.input.activePointer);
 
+    // 怪物行為更新 (僅在遊戲進行中執行)
     this.enemies.forEach((mob) => {
       if (mob.active) {
         mob.updateBehavior();
@@ -246,16 +262,18 @@ export default class GameScene extends Phaser.Scene {
     // 處理 TNT 爆炸事件監聽 (邏輯不變)
     this.playerObj.bullets.children.each((obj) => {
       const tnt = obj as Phaser.Physics.Arcade.Image & {
-        damage?: number;
-        explosionRadius?: number;
+        damage: number;
+        explosionRadius: number;
       };
 
       if (tnt.texture.key === "tnt" && !tnt.listeners("explode").length) {
         tnt.once("explode", (tntInstance: typeof tnt) =>
-          this.handleTNTExplosion(
-            tntInstance as typeof tnt & {
-              damage: number;
-              explosionRadius: number;
+          this.processExplosion(
+            {
+              x: tnt.x,
+              y: tnt.y,
+              damage: tnt.damage,
+              radius: tnt.explosionRadius,
             }
           )
         );
@@ -282,9 +300,63 @@ export default class GameScene extends Phaser.Scene {
     if (this.isPaused) {
       this.physics.pause();
       this.mobSpawnTimer.paused = true;
+      // 暫停所有 gameTick 計時器
+      this.gameTimers.forEach((timer) => {
+        if (timer && !timer.hasDispatched) {
+          timer.paused = true;
+        }
+      });
     } else {
       this.physics.resume();
       this.mobSpawnTimer.paused = false;
+      // 恢復所有 gameTick 計時器
+      this.gameTimers.forEach((timer) => {
+        if (timer && !timer.hasDispatched) {
+          timer.paused = false;
+        }
+      });
+    }
+  }
+
+  /**
+   * 🆕 創建受 gameTick 控制的計時器
+   * 當遊戲暫停時，這些計時器也會自動暫停
+   */
+  public addGameTimer(config: Phaser.Types.Time.TimerEventConfig): Phaser.Time.TimerEvent {
+    const timer = this.time.addEvent(config);
+    this.gameTimers.push(timer);
+    // 如果當前遊戲已暫停，立即暫停這個計時器
+    if (this.isPaused) {
+      timer.paused = true;
+    }
+    return timer;
+  }
+
+  /**
+   * 🆕 創建受 gameTick 控制的延遲調用
+   * 當遊戲暫停時，這些延遲調用也會自動暫停
+   */
+  public addGameDelayedCall(
+    delay: number,
+    callback: Function,
+    args?: any[],
+    callbackScope?: any
+  ): Phaser.Time.TimerEvent {
+    return this.addGameTimer({
+      delay: delay,
+      callback: callback,
+      args: args,
+      callbackScope: callbackScope,
+    });
+  }
+
+  /**
+   * 🆕 移除 gameTick 計時器（當計時器完成或銷毀時調用）
+   */
+  public removeGameTimer(timer: Phaser.Time.TimerEvent) {
+    const index = this.gameTimers.indexOf(timer);
+    if (index > -1) {
+      this.gameTimers.splice(index, 1);
     }
   }
 
@@ -296,17 +368,34 @@ export default class GameScene extends Phaser.Scene {
   private handleMobDeath(mob: BaseMob) {
     this.score += 10;
     this.enemies = this.enemies.filter((m) => m !== mob);
+
+    // --- 生成經驗球 ---
+    const xpValue = Phaser.Math.Between(5, 15); // 隨機經驗值
+    const xpSize = Phaser.Math.FloatBetween(0.5, 0.8); // 隨機大小
+    const xp = new XpMob(this, mob.x, mob.y, "xp_ball", { value: xpValue, size: xpSize });
+
+    // 綁定玩家作為目標
+    xp.setTarget(this.playerObj);
+
+    // 加入場景 update
+    this.enemies.push(xp);
+
+    // 監聽玩家拾取事件
+    xp.on("xp-collected", (amount: number) => {
+      // this.playerObj.addXp(amount);
+      console.log("玩家撿到經驗值:", amount);
+    });
   }
 
   // 處理玩家死亡 (遊戲結束)
   private handlePlayerDeath() {
-    // 修正 3: 確保所有遊戲元素停止
+    // 修正: 確保所有遊戲元素停止
     this.isPaused = true;
     this.playerObj.sprite.setTint(0xff0000);
     this.physics.pause();
     if (this.mobSpawnTimer) this.mobSpawnTimer.destroy();
 
-    // 停止所有怪物的移動
+    // 停止所有怪物的移動 - 這段邏輯確保遊戲結束時怪物不會再移動
     this.mobGroup.children.each((mob) => {
       (mob as BaseMob).setVelocity(0);
       (mob as BaseMob).body!.enable = false; // 禁用物理碰撞和移動
@@ -329,6 +418,7 @@ export default class GameScene extends Phaser.Scene {
       damage?: number;
       explosionRadius?: number;
     };
+    console.log(bullet)
     if (projectile.texture.key === "tnt") {
       if (
         projectile.damage !== undefined &&
@@ -336,6 +426,11 @@ export default class GameScene extends Phaser.Scene {
       ) {
         projectile.emit("explode", projectile);
         projectile.destroy();
+        this.processExplosion({
+          x: projectile.x, y: projectile.y,
+          damage: projectile.damage!,
+          radius: projectile.explosionRadius!
+        })
       }
       return;
     }
@@ -348,134 +443,94 @@ export default class GameScene extends Phaser.Scene {
     playerSprite: Phaser.Physics.Arcade.Sprite,
     bullet: ArrowMob
   ) {
-    if (this.playerObj.isDead || this.playerIsInvulnerable) {
-      bullet.destroy();
-      return;
-    }
     this.playerObj.takeDamage(bullet.damage, this);
     bullet.destroy();
-    this.playerIsInvulnerable = true;
-    playerSprite.setTint(0xdd0000);
-    this.time.delayedCall(500, () => {
-      this.playerIsInvulnerable = false;
-      if (!this.playerObj.isDead) playerSprite.clearTint();
-    });
   }
 
   private handleSwordHitMob(hitBox: Phaser.GameObjects.Zone, mob: BaseMob) {
-    if (hitBox.getData("hit")) return;
-    hitBox.setData("hit", true);
+    if (mob.getData("hit")) return;
+    mob.setData("hit", true);
     const damage = hitBox.getData("damage") as number;
     mob.takeDamage(damage);
-    hitBox.destroy();
-    this.playerObj.swordHitBox = null;
   }
 
   private handleMobHitPlayer(
     playerSprite: Phaser.Physics.Arcade.Sprite,
     mob: BaseMob
   ) {
-    if (this.playerObj.isDead || this.playerIsInvulnerable) return;
-    if (mob instanceof CreeperMob) return;
-    const damage = 10;
-    this.playerObj.takeDamage(damage, this);
-    this.playerIsInvulnerable = true;
-    playerSprite.setTint(0xdd0000);
-    this.time.delayedCall(500, () => {
-      this.playerIsInvulnerable = false;
-      if (!this.playerObj.isDead) playerSprite.clearTint();
-    });
-    const dx = playerSprite.x - mob.x;
-    const dy = playerSprite.y - mob.y;
-    playerSprite.setVelocity(dx * 5, dy * 5);
-    this.time.delayedCall(100, () => playerSprite.setVelocity(0));
+    this.playerObj.takeDamage(mob.attackDamage, this, mob);
   }
 
   private processExplosion(data: ExplosionData) {
-    const distanceToPlayer = Phaser.Math.Distance.Between(
-      data.x,
-      data.y,
+    const { x, y, damage, radius } = data;
+
+    // ---- 先處理玩家爆炸範圍 ----
+    const distPlayer = Phaser.Math.Distance.Between(
+      x,
+      y,
       this.playerObj.sprite.x,
       this.playerObj.sprite.y
     );
-    if (distanceToPlayer <= data.radius) {
+
+    if (distPlayer <= radius) {
       const effectiveDamage = Math.floor(
-        data.damage * (1 - distanceToPlayer / data.radius)
+        damage * (1 - distPlayer / radius)
       );
+
       if (effectiveDamage > 0) {
         this.playerObj.takeDamage(effectiveDamage, this);
-        this.playerIsInvulnerable = true;
-        this.playerObj.sprite.setTint(0xdd0000);
-        this.time.delayedCall(500, () => {
-          this.playerIsInvulnerable = false;
-          if (!this.playerObj.isDead) this.playerObj.sprite.clearTint();
-        });
       }
     }
-    const explosionZone = this.add.zone(
-      data.x,
-      data.y,
-      data.radius * 2,
-      data.radius * 2
-    );
-    this.physics.world.enable(explosionZone);
-    (explosionZone.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
-    (explosionZone.body as Phaser.Physics.Arcade.Body).setImmovable(true);
 
+    // ---- 建立爆炸區域給怪物判定 ----
+    const zone = this.add.zone(x, y, radius * 2, radius * 2);
+    this.physics.world.enable(zone);
+    const body = zone.body as Phaser.Physics.Arcade.Body;
+
+    body.setCircle(radius);
+    body.setOffset(-radius, -radius);
+    body.setAllowGravity(false);
+    body.setImmovable(true);
+
+    // ---- 怪物受到爆炸傷害 ----
     this.physics.overlap(
-      explosionZone,
+      zone,
       this.mobGroup,
-      (zone, mobObj) => {
+      (_, mobObj) => {
         const mob = mobObj as BaseMob;
-        if (mob.active) {
-          const distToMob = Phaser.Math.Distance.Between(
-            data.x,
-            data.y,
-            mob.x,
-            mob.y
+        if (!mob.active) return;
+
+        const distMob = Phaser.Math.Distance.Between(x, y, mob.x, mob.y);
+
+        if (distMob <= radius) {
+          const effDmg = Math.floor(
+            damage * (1 - distMob / radius)
           );
-          if (distToMob <= data.radius) {
-            const effectiveDamage = Math.floor(
-              data.damage * (1 - distToMob / data.radius)
-            );
-            if (effectiveDamage > 0) {
-              mob.takeDamage(effectiveDamage);
-            }
-          }
+          if (effDmg > 0) mob.takeDamage(effDmg);
         }
       },
       undefined,
       this
     );
-    this.time.delayedCall(100, () => explosionZone.destroy());
-  }
 
-  private handleTNTExplosion(
-    tnt: Phaser.Physics.Arcade.Image & {
-      damage: number;
-      explosionRadius: number;
-    }
-  ) {
-    const explosionCircle = this.add.circle(
-      tnt.x,
-      tnt.y,
-      tnt.explosionRadius,
-      0xffa500,
+    // 爆炸區域短暫存在後移除
+    this.time.delayedCall(100, () => zone.destroy());
+
+    const explosion = this.add.circle(
+      x,
+      y,
+      radius * 0.5,
+      0xff0000,
       0.5
     );
-    this.time.delayedCall(300, () => {
-      explosionCircle.destroy();
+    this.tweens.add({
+      targets: explosion,
+      scale: 1.5, // 爆炸擴散
+      alpha: 0,
+      duration: 400,
+      ease: "Quad.easeOut",
+      onComplete: () => explosion.destroy(),
     });
-    this.processExplosion({
-      x: tnt.x,
-      y: tnt.y,
-      damage: tnt.damage,
-      radius: tnt.explosionRadius,
-    });
-  }
-
-  private handleCreeperExplosion(data: ExplosionData) {
-    this.processExplosion(data);
   }
 
   private spawnRandomMob() {
@@ -507,12 +562,12 @@ export default class GameScene extends Phaser.Scene {
       ]);
     }
 
-    const mob = MobFactory.spawn(type, this, { x, y }, this.playerObj.sprite);
+    const mob = MobFactory.spawn(type, this, { x, y }, this.playerObj);
 
     this.mobGroup.add(mob);
     this.enemies.push(mob);
 
     mob.on("mob-die", this.handleMobDeath, this);
-    mob.on("creeper-explode", this.handleCreeperExplosion, this);
+    mob.on("creeper-explode", this.processExplosion, this);
   }
 }

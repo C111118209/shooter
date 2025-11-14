@@ -6,8 +6,8 @@ import { BaseMob } from "./BaseMob";
  * 模擬低速持續追擊玩家的殭屍。
  */
 export class ZombieMob extends BaseMob {
-  constructor(scene: Phaser.Scene, x: number, y: number) {
-    super(scene, x, y, "zombie");
+  constructor(scene: Phaser.Scene, x: number, y: number, damage = 10) {
+    super(scene, x, y, "zombie", damage);
     this.speed = 60;
   }
 

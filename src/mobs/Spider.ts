@@ -6,8 +6,8 @@ import { BaseMob } from "./BaseMob";
  * 以「速度提升」作為特性。
  */
 export class SpiderMob extends BaseMob {
-  constructor(scene: Phaser.Scene, x: number, y: number) {
-    super(scene, x, y, "spider");
+  constructor(scene: Phaser.Scene, x: number, y: number, damage = 5) {
+    super(scene, x, y, "spider", damage);
     this.speed = 120;
   }
 

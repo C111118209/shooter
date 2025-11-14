@@ -16,8 +16,8 @@ export class CreeperMob extends BaseMob {
   private blinkDuration = 100; // 每次閃爍持續時間 (0.1秒)
   // -----------------
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
-    super(scene, x, y, "creeper");
+  constructor(scene: Phaser.Scene, x: number, y: number, damage = 0) {
+    super(scene, x, y, "creeper", damage);
     this.speed = 70;
   }
 
@@ -106,24 +106,6 @@ export class CreeperMob extends BaseMob {
       radius: this.explosionRadius,
     });
 
-    // 2. 視覺效果：爆炸圈
-    const explosion = this.sceneRef.add.circle(
-      this.x,
-      this.y,
-      this.explosionRadius * 0.5,
-      0xff0000,
-      0.5
-    );
-    this.sceneRef.tweens.add({
-      targets: explosion,
-      scale: 1.5, // 爆炸擴散
-      alpha: 0,
-      duration: 400,
-      ease: "Quad.easeOut",
-      onComplete: () => explosion.destroy(),
-    });
-
-    // 3. 銷毀苦力怕本身
     this.destroy();
   }
 }

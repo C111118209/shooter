@@ -5,7 +5,7 @@ import type { Player } from "../player/Player";
 import { ArrowMob } from "../mobs/ArrowMob";
 
 export class BowStrategy implements IWeaponStrategy {
-  private damage: number = 20;
+  private defaultDamage: number = 20;
   private fireRate: number = 500;
   private lastFired: number = 0;
 
@@ -40,6 +40,6 @@ export class BowStrategy implements IWeaponStrategy {
     const arrow = holder.bullets.get() as ArrowMob;
     if (!arrow) return;
 
-    arrow.fire(startX, startY, targetX, targetY, this.damage);
+    arrow.fire(startX, startY, targetX, targetY, holder.attackDamage ?? this.defaultDamage);
   }
 }

@@ -4,9 +4,11 @@ export default class UIScene extends Phaser.Scene {
   private healthBarGraphics!: Phaser.GameObjects.Graphics;
   private deathMenuContainer!: Phaser.GameObjects.Container;
   private pauseText!: Phaser.GameObjects.Text;
-  private weaponIcon!: Phaser.GameObjects.Image;
   private weaponNameText!: Phaser.GameObjects.Text;
+
   private currentScore: number = 0;
+  private currentHealth: number = 100;
+  private currentMaxHealth: number = 100;
 
   constructor() {
     super("UIScene");
@@ -118,12 +120,6 @@ export default class UIScene extends Phaser.Scene {
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(hudDepth);
-
-    this.weaponIcon = this.add
-      .image(width - 45, 45, "bow")
-      .setScale(0.6)
-      .setScrollFactor(0)
-      .setDepth(hudDepth);
   }
 
   /** 創建暫停文字 */
@@ -205,11 +201,12 @@ export default class UIScene extends Phaser.Scene {
     finalScoreText.setText(`最終得分: ${this.currentScore}`);
     this.deathMenuContainer.setVisible(true);
     this.setHUDVisibility(false);
+    this.events.emit("game-paused", true);
   }
 
   /** 重新啟動遊戲 */
   private restartGame() {
-    // 修正 3: 隱藏死亡選單，停止並重新啟動 GameScene
+    // 修正: 隱藏死亡選單，停止並重新啟動 GameScene
     this.deathMenuContainer.setVisible(false);
     this.scene.stop("GameScene");
     this.scene.start("GameScene");
@@ -218,15 +215,30 @@ export default class UIScene extends Phaser.Scene {
     this.createMainMenu();
   }
 
-  /** 更新血量、分數等 HUD 資訊 */
+  /** 更新血量 / 分數 / 其他 UI */
   private updateHUD(data: {
-    health: number;
-    maxHealth: number;
-    score: number;
+    health?: number;
+    maxHealth?: number;
+    score?: number;
   }) {
     const { health, maxHealth, score } = data;
-    this.currentScore = score;
-    this.scoreText.setText(`得分: ${score} | HP: ${health}/${maxHealth}`);
+
+    // 分數更新
+    if (score !== undefined) {
+      this.currentScore = score;
+      this.scoreText.setText(`得分: ${score}`);
+    }
+
+    // 血量更新（允許 undefined，不更新就沿用舊值）
+    if (health !== undefined) this.currentHealth = health;
+    if (maxHealth !== undefined) this.currentMaxHealth = maxHealth;
+
+    this.drawHealthBar();
+  }
+
+  /** 繪製血條 */
+  private drawHealthBar() {
+    const { currentHealth: hp, currentMaxHealth: maxHp } = this;
 
     this.healthBarGraphics.clear();
 
@@ -237,16 +249,17 @@ export default class UIScene extends Phaser.Scene {
     this.healthBarGraphics.fillStyle(0x555555);
     this.healthBarGraphics.fillRect(0, 0, barWidth, barHeight);
 
-    // 血量條
-    const healthColor =
-      health > maxHealth * 0.5
-        ? 0x00ff00
-        : health > maxHealth * 0.25
-        ? 0xffa500
-        : 0xff0000;
-    const healthWidth = (health / maxHealth) * barWidth;
-    this.healthBarGraphics.fillStyle(healthColor);
-    this.healthBarGraphics.fillRect(0, 0, healthWidth, barHeight);
+    // 安全避免 NaN
+    const ratio = Math.max(0, Math.min(1, hp / maxHp));
+    const fillWidth = ratio * barWidth;
+
+    const fillColor =
+      ratio > 0.5 ? 0x00ff00 :
+        ratio > 0.25 ? 0xffa500 :
+          0xff0000;
+
+    this.healthBarGraphics.fillStyle(fillColor);
+    this.healthBarGraphics.fillRect(0, 0, fillWidth, barHeight);
   }
 
   /** 切換暫停文字顯示 */
@@ -256,14 +269,14 @@ export default class UIScene extends Phaser.Scene {
 
   /** 更新武器圖標和名稱 */
   private updateWeaponDisplay(data: { key: string; name: string }) {
-    this.weaponIcon.setTexture(data.key);
-    this.weaponNameText.setText(`${data.name}`);
+    if (this.weaponNameText) {
+      this.weaponNameText.setText(`${data.name}`);
+    }
   }
 
   private setHUDVisibility(visible: boolean) {
     this.scoreText.setVisible(visible);
     this.healthBarGraphics.setVisible(visible);
-    this.weaponIcon.setVisible(visible);
     this.weaponNameText.setVisible(visible);
     this.pauseText.setVisible(false);
   }
