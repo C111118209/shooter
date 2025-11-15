@@ -293,7 +293,7 @@ export default class GameScene extends Phaser.Scene {
       };
 
       if (tnt.texture.key === "tnt" && !tnt.listeners("explode").length) {
-        tnt.once("explode", (tntInstance: typeof tnt) =>
+        tnt.once("explode", (_tntInstance: typeof tnt) =>
           this.processExplosion(
             {
               x: tnt.x,
@@ -498,7 +498,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private handleMobBulletHitPlayer(
-    playerSprite: Phaser.Physics.Arcade.Sprite,
+    _playerSprite: Phaser.Physics.Arcade.Sprite,
     bullet: ArrowMob
   ) {
     this.playerObj.takeDamage(bullet.damage, this);
@@ -513,7 +513,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private handleMobHitPlayer(
-    playerSprite: Phaser.Physics.Arcade.Sprite,
+    _playerSprite: Phaser.Physics.Arcade.Sprite,
     mob: BaseMob
   ) {
     this.playerObj.takeDamage(mob.attackDamage, this, mob);
