@@ -21,7 +21,7 @@ export class Player {
   // -------------------------
   public level: number = 1;
   public xp: number = 0;
-  public xpToNextLevel: number = 5;
+  public xpToNextLevel: number = 10;
 
   public moveSpeedBonus: number = 0; // 基礎速度在 GameScene 中定義
 
@@ -171,12 +171,7 @@ export class Player {
 
   private levelUp(_scene: Phaser.Scene) {
     this.level += 1;
-    this.xpToNextLevel = this.level * 5;
-
-    // // 基礎加成
-    // this.maxHealth += 10;
-    // this.health = this.maxHealth;
-    // this.attackDamage += 5;
+    this.xpToNextLevel = this.level * 10;
 
     // 通過 GameManager 發送升級事件
     const gameManager = GameManager.getInstance();
