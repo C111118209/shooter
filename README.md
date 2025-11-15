@@ -5,6 +5,7 @@ to do
 
 lazy to do
 - bow animation
+- bullet group arrowMob should replace with projectileMob
 
 
 minecraft mobs icon

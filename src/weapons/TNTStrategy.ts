@@ -53,7 +53,8 @@ export class TNTStrategy implements IWeaponStrategy {
       tnt.setActive(true).setVisible(true);
       tnt.setRotation(angle);
       tnt.setVelocity(Math.cos(angle) * 400, Math.sin(angle) * 400);
-      tnt.setScale(0.5);
+      tnt.setScale(0.2);
+      tnt.setSize(12, 12)
 
       // 設置爆炸屬性
       tnt.damage = this.damage;

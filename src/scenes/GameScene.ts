@@ -9,6 +9,7 @@ import { BowStrategy } from "../weapons/BowStrategy";
 import { SwordStrategy } from "../weapons/SwordStrategy";
 import { TNTStrategy } from "../weapons/TNTStrategy";
 import { XpMob } from "../mobs/XpMob";
+import { GameManager } from "../core/GameManager";
 
 type WASD = {
   up: Phaser.Input.Keyboard.Key;
@@ -28,6 +29,7 @@ export default class GameScene extends Phaser.Scene {
   private wasd!: WASD;
   private _score: number = 0;
   private mobSpawnTimer!: Phaser.Time.TimerEvent;
+  private gameManager!: GameManager;
 
   get score(): number {
     return this._score;
@@ -35,15 +37,14 @@ export default class GameScene extends Phaser.Scene {
 
   set score(value: number) {
     this._score = value;
-    // 分數變更時發送更新事件給 UIScene
-    this.events.emit("update-stats", {
-      health: this.playerObj.health,
-      maxHealth: this.playerObj.maxHealth,
-      score: this._score,
-    });
+    // 使用 GameManager 更新分數
+    this.gameManager.updateScore(this._score);
   }
 
-  public isPaused: boolean = true;
+  public get isPaused(): boolean {
+    return this.gameManager.getPaused();
+  }
+
   private pauseKey!: Phaser.Input.Keyboard.Key;
 
   // 🆕 gameTick 系統：管理所有受遊戲暫停控制的計時器
@@ -65,13 +66,20 @@ export default class GameScene extends Phaser.Scene {
     this.load.image("arrow", "assets/weapons/arrow.webp");
     this.load.image("bow", "assets/weapons/bow.webp");
     this.load.image("iron_sword", "assets/weapons/iron_sword.webp");
-    this.load.image("tnt", "https://labs.phaser.io/assets/sprites/block.png");
+    this.load.image("tnt", "assets/weapons/tnt.png");
     this.load.image("xp_ball", "assets/mobs/xp_ball.png");
   }
 
   create() {
+    // 初始化 GameManager
+    this.gameManager = GameManager.getInstance();
+    const uiScene = this.scene.get("UIScene");
+    if (uiScene) {
+      this.gameManager.initialize(this, uiScene);
+    }
+
     // 重置所有狀態
-    this.isPaused = true;
+    this.gameManager.reset();
     this._score = 0;
     this.enemies = [];
     // 清理所有 gameTick 計時器
@@ -115,34 +123,52 @@ export default class GameScene extends Phaser.Scene {
 
     // 啟動 UI Scene
     if (!this.scene.isActive("UIScene")) {
-      this.scene.launch("UIScene");
+      this.scene.launch("UIScene", { player: this.playerObj });
+      // 重新初始化 GameManager（確保 UIScene 已啟動）
+      const updatedUIScene = this.scene.get("UIScene");
+      if (updatedUIScene) {
+        this.gameManager.initialize(this, updatedUIScene);
+      }
     }
 
-    // 遊戲開始事件 (由 UIScene 的主選單觸發)
-    this.events.once("game-started", this.startGame, this);
+    // 通過 GameManager 監聽遊戲開始事件 (由 UIScene 的主選單觸發)
+    this.gameManager.once("game-started", this.startGame, this);
 
-    this.events.once("player-die", this.handlePlayerDeath, this);
+    // 通過 GameManager 監聽玩家死亡事件
+    this.gameManager.once("player-die", this.handlePlayerDeath, this);
+
+    // 升級事件現在由 UIScene 處理，不需要在這裡監聽
 
     // 初始暫停，等待主選單
-    this.physics.pause();
+    this.gameManager.setPause(true);
+  }
+
+  public handleResize(gameSize: Phaser.Structs.Size) {
+    const width = gameSize.width;
+    const height = gameSize.height;
+
+    // 更新物理世界邊界
+    this.physics.world.setBounds(0, 0, width, height);
+
+    // 調整玩家位置避免跑出邊界
+    if (this.playerObj?.sprite) {
+      const player = this.playerObj.sprite;
+      player.x = Phaser.Math.Clamp(player.x, 0, width);
+      player.y = Phaser.Math.Clamp(player.y, 0, height);
+    }
   }
 
   private startGame() {
-    this.isPaused = false;
+    this.gameManager.setPause(false);
     this.playerObj.sprite.setActive(true).setVisible(true); // 顯示玩家
 
     // 修正: 延遲武器初始化，確保 UIScene 元素在事件發送時已經存在。
     this.playerObj.setWeapon(new BowStrategy(), "bow");
-    this.events.emit("weapon-change", { key: "bow", name: "🏹 弓" });
+    this.gameManager.notifyWeaponChange("bow", "🏹 弓");
 
     // 修正: 在遊戲真正開始時，同步一次 HUD 狀態
-    this.events.emit("update-stats", {
-      health: this.playerObj.health,
-      maxHealth: this.playerObj.maxHealth,
-      score: this._score,
-    });
+    this.gameManager.updateScore(this._score);
 
-    this.physics.resume();
     this.startMobSpawning();
   }
 
@@ -164,21 +190,21 @@ export default class GameScene extends Phaser.Scene {
       .on("down", () => {
         if (this.isPaused || this.playerObj.isDead) return;
         this.playerObj.setWeapon(new BowStrategy(), "bow");
-        this.events.emit("weapon-change", { key: "bow", name: "🏹 弓" });
+        this.gameManager.notifyWeaponChange("bow", "🏹 弓");
       });
     this.input.keyboard
       ?.addKey(Phaser.Input.Keyboard.KeyCodes.TWO)
       .on("down", () => {
         if (this.isPaused || this.playerObj.isDead) return;
         this.playerObj.setWeapon(new SwordStrategy(), "iron_sword");
-        this.events.emit("weapon-change", { key: "iron_sword", name: "⚔ 劍" });
+        this.gameManager.notifyWeaponChange("iron_sword", "⚔ 劍");
       });
     this.input.keyboard
       ?.addKey(Phaser.Input.Keyboard.KeyCodes.THREE)
       .on("down", () => {
         if (this.isPaused || this.playerObj.isDead) return;
         this.playerObj.setWeapon(new TNTStrategy(), "tnt");
-        this.events.emit("weapon-change", { key: "tnt", name: "💣 TNT" });
+        this.gameManager.notifyWeaponChange("tnt", "💣 TNT");
       });
   }
 
@@ -286,20 +312,16 @@ export default class GameScene extends Phaser.Scene {
   // 遊戲功能方法
   // ------------------------------------
 
-  private togglePause() {
-    if (
-      this.playerObj.isDead ||
-      !this.mobSpawnTimer ||
-      (this.isPaused && !this.scene.isActive("UIScene"))
-    )
-      return;
+  /**
+   * 核心狀態設定函數：純粹地設定遊戲的暫停/恢復狀態。
+   * @param isPaused 遊戲是否應該暫停
+   */
+  public setPause(isPaused: boolean) {
+    this.gameManager.setPause(isPaused);
 
-    this.isPaused = !this.isPaused;
-    this.events.emit("game-paused", this.isPaused);
-
-    if (this.isPaused) {
-      this.physics.pause();
-      this.mobSpawnTimer.paused = true;
+    // 處理計時器暫停/恢復
+    if (isPaused) {
+      if (this.mobSpawnTimer) this.mobSpawnTimer.paused = true;
       // 暫停所有 gameTick 計時器
       this.gameTimers.forEach((timer) => {
         if (timer && !timer.hasDispatched) {
@@ -307,9 +329,47 @@ export default class GameScene extends Phaser.Scene {
         }
       });
     } else {
-      this.physics.resume();
-      this.mobSpawnTimer.paused = false;
+      if (this.mobSpawnTimer) this.mobSpawnTimer.paused = false;
       // 恢復所有 gameTick 計時器
+      this.gameTimers.forEach((timer) => {
+        if (timer && !timer.hasDispatched) {
+          timer.paused = false;
+        }
+      });
+
+      // 確保玩家和武器精靈在恢復時是可見的
+      if (this.playerObj && !this.playerObj.isDead) {
+        this.playerObj.sprite.setVisible(true);
+        this.playerObj.weaponSprite.setVisible(true);
+      }
+    }
+  }
+
+  /**
+     * 玩家操作控制函數：切換遊戲的暫停狀態 (P/ESC鍵觸發)
+     */
+  public togglePause() {
+    // 如果玩家已死亡，或怪物生成計時器不存在，則不允許玩家切換暫停
+    if (
+      this.playerObj.isDead ||
+      !this.mobSpawnTimer
+    )
+      return;
+
+    // 使用 GameManager 切換狀態
+    this.gameManager.togglePause();
+    const newPausedState = this.gameManager.getPaused();
+
+    // 處理計時器暫停/恢復
+    if (newPausedState) {
+      if (this.mobSpawnTimer) this.mobSpawnTimer.paused = true;
+      this.gameTimers.forEach((timer) => {
+        if (timer && !timer.hasDispatched) {
+          timer.paused = true;
+        }
+      });
+    } else {
+      if (this.mobSpawnTimer) this.mobSpawnTimer.paused = false;
       this.gameTimers.forEach((timer) => {
         if (timer && !timer.hasDispatched) {
           timer.paused = false;
@@ -382,17 +442,14 @@ export default class GameScene extends Phaser.Scene {
 
     // 監聽玩家拾取事件
     xp.on("xp-collected", (amount: number) => {
-      // this.playerObj.addXp(amount);
-      console.log("玩家撿到經驗值:", amount);
+      this.playerObj.addXp(amount, this);
     });
   }
 
   // 處理玩家死亡 (遊戲結束)
   private handlePlayerDeath() {
     // 修正: 確保所有遊戲元素停止
-    this.isPaused = true;
     this.playerObj.sprite.setTint(0xff0000);
-    this.physics.pause();
     if (this.mobSpawnTimer) this.mobSpawnTimer.destroy();
 
     // 停止所有怪物的移動 - 這段邏輯確保遊戲結束時怪物不會再移動
@@ -402,9 +459,11 @@ export default class GameScene extends Phaser.Scene {
       return null;
     });
 
-    // 發送死亡事件給 UIScene 顯示死亡選單
-    this.events.emit("player-die");
+    // 使用 GameManager 發送死亡事件
+    this.gameManager.notifyPlayerDeath();
   }
+
+  // 升級選單現在由 UIScene 處理，不再需要這個方法
 
   // ------------------------------------
   // 碰撞與爆炸處理方法 (保持與原邏輯一致)
@@ -418,7 +477,6 @@ export default class GameScene extends Phaser.Scene {
       damage?: number;
       explosionRadius?: number;
     };
-    console.log(bullet)
     if (projectile.texture.key === "tnt") {
       if (
         projectile.damage !== undefined &&

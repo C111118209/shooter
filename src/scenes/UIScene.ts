@@ -1,6 +1,15 @@
 import type { Player } from "../player/Player";
+import { GameManager } from "../core/GameManager";
+import {
+  HealthBoostDecorator,
+  HealingDecorator,
+  DamageBoostDecorator,
+  SpeedBoostDecorator,
+} from "../player/IPlayerDecorator";
+import type { IPlayerDecorator } from "../player/IPlayerDecorator";
 
 export default class UIScene extends Phaser.Scene {
+  private gameManager!: GameManager;
   private mainMenuContainer!: Phaser.GameObjects.Container; // 新增主選單容器
   private scoreText!: Phaser.GameObjects.Text;
   private healthBarGraphics!: Phaser.GameObjects.Graphics;
@@ -11,6 +20,9 @@ export default class UIScene extends Phaser.Scene {
   // 新增等級和經驗值相關的 UI 元素
   private levelText!: Phaser.GameObjects.Text;
   private xpBarGraphics!: Phaser.GameObjects.Graphics;
+
+  // 升級選擇界面容器
+  private upgradeMenuContainer!: Phaser.GameObjects.Container;
 
   private currentScore: number = 0;
   private currentHealth: number = 100;
@@ -28,41 +40,74 @@ export default class UIScene extends Phaser.Scene {
   }
 
   init(data: { player: Player }) {
-    this.player = data.player;  // 接收 Player
+    this.player = data.player; // 接收 Player
   }
 
   create() {
     this.scene.bringToTop();
 
-    // 監聽 GameScene 的事件
-    const gameScene = this.scene.get("GameScene");
-    if (gameScene) {
-      gameScene.events.on("update-stats", this.updateHUD, this);
-      gameScene.events.on("player-die", this.showDeathMenu, this);
-      gameScene.events.on("game-paused", this.togglePauseText, this);
-      gameScene.events.on("weapon-change", this.updateWeaponDisplay, this);
-      // 注意: 玩家升級事件 (player-level-up) 可以額外處理，例如播放動畫
-      // gameScene.events.on("player-level-up", this.showLevelUpNotification, this);
-    }
+    // 初始化 GameManager
+    this.gameManager = GameManager.getInstance();
+
+    // 通過 GameManager 監聽所有事件（統一的事件總線）
+    this.gameManager.on("update-stats", this.updateHUD, this);
+    this.gameManager.on("player-die", this.showDeathMenu, this);
+    this.gameManager.on("game-paused", this.togglePauseText, this);
+    this.gameManager.on("weapon-change", this.updateWeaponDisplay, this);
+    this.gameManager.on("player-level-up", this.showUpgradeMenu, this);
 
     // 創建所有 UI 元素 (初始隱藏 HUD 和死亡選單)
     this.createHUD();
     this.createPauseText();
     this.createDeathMenu();
+    this.createUpgradeMenu();
     this.setHUDVisibility(false);
 
     // 顯示主選單
     this.createMainMenu();
   }
 
+  public handleResize(gameSize: Phaser.Structs.Size) {
+    // 更新武器名稱文字位置（右上角）
+    if (this.weaponNameText) {
+      this.weaponNameText.setX(gameSize.width - 15);
+    }
+
+    // 更新主選單容器位置（居中）
+    if (this.mainMenuContainer && this.mainMenuContainer.visible) {
+      this.mainMenuContainer.setX(gameSize.width / 2);
+      this.mainMenuContainer.setY(gameSize.height / 2);
+    }
+
+    // 更新暫停文字位置（居中）
+    if (this.pauseText) {
+      this.pauseText.setX(gameSize.width / 2);
+      this.pauseText.setY(gameSize.height / 2);
+    }
+
+    // 更新死亡選單容器位置（居中）
+    if (this.deathMenuContainer && this.deathMenuContainer.visible) {
+      this.deathMenuContainer.setX(gameSize.width / 2);
+      this.deathMenuContainer.setY(gameSize.height / 2);
+    }
+
+    // 更新升級選單容器位置（居中）
+    if (this.upgradeMenuContainer && this.upgradeMenuContainer.visible) {
+      this.upgradeMenuContainer.setX(gameSize.width / 2);
+      this.upgradeMenuContainer.setY(gameSize.height / 2);
+    }
+  }
+
   update() {
-    if (!this.player) return;
+    // 只有在遊戲進行中（或不在升級選單中）才持續更新 HUD
+    if (!this.player || this.gameManager.paused) return;
 
     this.updateHUD({
       health: this.player.health,
       maxHealth: this.player.maxHealth,
       xp: this.player.xp,
-      level: this.player.level
+      level: this.player.level,
+      xpToNextLevel: this.player.xpToNextLevel // 確保經驗條比例正確
     });
   }
 
@@ -101,8 +146,10 @@ export default class UIScene extends Phaser.Scene {
       .setDepth(300)
       .setVisible(true);
 
-    // 確保 GameScene 處於暫停狀態
-    this.scene.get("GameScene").physics.pause();
+    // 確保 GameScene 處於暫停狀態（通過 GameManager）
+    if (this.gameManager) {
+      this.gameManager.setPause(true);
+    }
   }
 
   /** 移除主選單並啟動/恢復 GameScene */
@@ -111,9 +158,8 @@ export default class UIScene extends Phaser.Scene {
     this.mainMenuContainer.setVisible(false);
     this.mainMenuContainer.destroy();
 
-    const gameScene = this.scene.get("GameScene");
-    gameScene.events.emit("game-started"); // 通知 GameScene 開始遊戲
-    gameScene.physics.resume();
+    // 使用 GameManager 通知遊戲開始
+    this.gameManager.notifyGameStarted();
     this.setHUDVisibility(true);
 
     // 立即觸發一次 HUD 更新，以確保初始數據正確顯示
@@ -127,12 +173,17 @@ export default class UIScene extends Phaser.Scene {
 
     // 分數和血量文字 HUD (更新為包含 HP 資訊)
     this.scoreText = this.add
-      .text(16, 16, `得分: ${this.currentScore} | HP: ${this.currentHealth}/${this.currentMaxHealth}`, {
-        fontSize: "24px",
-        color: "#ffffff",
-        backgroundColor: "#00000088",
-        padding: { x: 10, y: 5 },
-      })
+      .text(
+        16,
+        16,
+        `得分: ${this.currentScore} | HP: ${this.currentHealth}/${this.currentMaxHealth}`,
+        {
+          fontSize: "24px",
+          color: "#ffffff",
+          backgroundColor: "#00000088",
+          padding: { x: 10, y: 5 },
+        }
+      )
       .setScrollFactor(0)
       .setDepth(hudDepth);
 
@@ -144,12 +195,17 @@ export default class UIScene extends Phaser.Scene {
 
     // 等級文字 (位於血條下方, 85px)
     this.levelText = this.add
-      .text(16, 85, `等級: ${this.currentLevel} | XP: ${this.currentXp}/${this.currentXpToNextLevel}`, {
-        fontSize: "20px",
-        color: "#ffffff",
-        backgroundColor: "#00000088",
-        padding: { x: 10, y: 5 },
-      })
+      .text(
+        16,
+        85,
+        `等級: ${this.currentLevel} | XP: ${this.currentXp}/${this.currentXpToNextLevel}`,
+        {
+          fontSize: "20px",
+          color: "#ffffff",
+          backgroundColor: "#00000088",
+          padding: { x: 10, y: 5 },
+        }
+      )
       .setScrollFactor(0)
       .setDepth(hudDepth);
 
@@ -251,7 +307,6 @@ export default class UIScene extends Phaser.Scene {
     finalScoreText.setText(`最終得分: ${this.currentScore}`);
     this.deathMenuContainer.setVisible(true);
     this.setHUDVisibility(false);
-    this.events.emit("game-paused", true);
   }
 
   /** 重新啟動遊戲 */
@@ -322,9 +377,7 @@ export default class UIScene extends Phaser.Scene {
     const fillWidth = ratio * barWidth;
 
     const fillColor =
-      ratio > 0.5 ? 0x00ff00 :
-        ratio > 0.25 ? 0xffa500 :
-          0xff0000;
+      ratio > 0.5 ? 0x00ff00 : ratio > 0.25 ? 0xffa500 : 0xff0000;
 
     this.healthBarGraphics.fillStyle(fillColor);
     this.healthBarGraphics.fillRect(0, 0, fillWidth, barHeight);
@@ -354,9 +407,21 @@ export default class UIScene extends Phaser.Scene {
     this.xpBarGraphics.fillRect(0, 0, fillWidth, barHeight);
   }
 
+  public showHUD(bool: boolean) {
+    this.setHUDVisibility(bool);
+    this.pauseText.setVisible(bool);
+  }
+
   /** 切換暫停文字顯示 */
   private togglePauseText(isPaused: boolean) {
+    // 如果升級選單正在顯示，不顯示暫停文字
+    if (this.upgradeMenuContainer.visible) {
+      this.pauseText.setVisible(false);
+      return;
+    }
+
     this.pauseText.setVisible(isPaused);
+    this.setHUDVisibility(!isPaused);
   }
 
   /** 更新武器圖標和名稱 */
@@ -371,10 +436,170 @@ export default class UIScene extends Phaser.Scene {
     this.scoreText.setVisible(visible);
     this.healthBarGraphics.setVisible(visible);
     this.weaponNameText.setVisible(visible);
-    this.pauseText.setVisible(false); // 暫停文字獨立控制
+    // this.pauseText.setVisible(false); // 暫停文字獨立控制
 
-    // 新增 XP 相關 UI
+    // XP 相關 UI
     this.levelText.setVisible(visible);
     this.xpBarGraphics.setVisible(visible);
+  }
+
+  /** 獲取所有可用的升級選項 */
+  private getAvailableUpgrades(): {
+    UpgradeClass: { new (player: Player): IPlayerDecorator };
+    description: string;
+  }[] {
+    return [
+      {
+        UpgradeClass: HealthBoostDecorator,
+        description: "❤️ 最大血量 +10~30",
+      },
+      {
+        UpgradeClass: HealingDecorator,
+        description: "✨ 立即恢復 HP +10~50",
+      },
+      {
+        UpgradeClass: DamageBoostDecorator,
+        description: "⚔️ 攻擊傷害 +5",
+      },
+      {
+        UpgradeClass: SpeedBoostDecorator,
+        description: "👟 移動速度 +20",
+      },
+    ];
+  }
+
+  /** 創建升級選擇界面 */
+  private createUpgradeMenu() {
+    const { centerX, centerY } = this.cameras.main;
+
+    // 標題文字
+    const titleText = this.add
+      .text(0, -250, "等級提升！選擇一個加成", {
+        fontSize: "48px",
+        color: "#ffd700",
+        backgroundColor: "#000000aa",
+        padding: { x: 20, y: 10 },
+      })
+      .setOrigin(0.5)
+      .setDepth(1);
+
+    // 創建容器（初始隱藏）
+    this.upgradeMenuContainer = this.add
+      .container(centerX, centerY, [titleText])
+      .setDepth(300)
+      .setScrollFactor(0)
+      .setVisible(false);
+  }
+
+  /** 顯示升級選擇界面 */
+  private showUpgradeMenu() {
+    if (!this.player) return;
+
+    // 先隱藏暫停文字，避免在升級選單顯示時出現
+    this.pauseText.setVisible(false);
+    
+    // 暫停遊戲
+    this.gameManager.setPause(true);
+    this.setHUDVisibility(false);
+
+    // 設置半透明背景（UIScene 的相機）
+    this.cameras.main.setBackgroundColor("rgba(0, 0, 0, 0.7)");
+    
+    // 設置 GameScene 的相機背景為半透明
+    const gameScene = this.scene.get("GameScene");
+    if (gameScene) {
+      gameScene.cameras.main.setBackgroundColor("rgba(0, 0, 0, 0.7)");
+    }
+
+    // 獲取所有可用的升級選項
+    const availableUpgrades = this.getAvailableUpgrades();
+
+    // 清理舊的升級選項（如果有的話）
+    const children = this.upgradeMenuContainer.list;
+    // 保留標題（第一個元素），移除其他
+    while (children.length > 1) {
+      const child = children[children.length - 1];
+      if (child instanceof Phaser.GameObjects.GameObject) {
+        child.destroy();
+      }
+      children.pop();
+    }
+
+    // 隨機選擇三個不重複的加成
+    const selectedUpgrades = Phaser.Utils.Array.Shuffle(
+      availableUpgrades
+    ).slice(0, 3);
+
+    const offsets = [-200, 0, 200];
+    selectedUpgrades.forEach((upgradeData, index) => {
+      this.createUpgradeOption(
+        offsets[index],
+        0,
+        upgradeData.description,
+        upgradeData.UpgradeClass
+      );
+    });
+
+    // 顯示升級選單
+    this.upgradeMenuContainer.setVisible(true);
+  }
+
+  /** 創建升級選項 */
+  private createUpgradeOption(
+    x: number,
+    y: number,
+    description: string,
+    UpgradeClass: { new (player: Player): IPlayerDecorator }
+  ) {
+    const box = this.add
+      .rectangle(x, y, 180, 180, 0x333333)
+      .setStrokeStyle(4, 0xffd700)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(1);
+
+    const text = this.add
+      .text(x, y, description, {
+        fontSize: "20px",
+        color: "#ffffff",
+        wordWrap: { width: 160 },
+        align: "center",
+      })
+      .setOrigin(0.5)
+      .setDepth(1);
+
+    // 添加到容器中
+    this.upgradeMenuContainer.add([box, text]);
+
+    if (!this.player) return;
+
+    const upgradeInstance = new UpgradeClass(this.player);
+
+    box.on("pointerdown", () => this.selectUpgrade(upgradeInstance));
+    box.on("pointerover", () => box.setFillStyle(0x555555));
+    box.on("pointerout", () => box.setFillStyle(0x333333));
+  }
+
+  /** 選擇升級 */
+  private selectUpgrade(decorator: IPlayerDecorator) {
+    // 應用裝飾器效果
+    decorator.apply();
+
+    // 隱藏升級選單
+    this.upgradeMenuContainer.setVisible(false);
+
+    // 恢復 UIScene 的背景顏色（透明或默認）
+    this.cameras.main.setBackgroundColor("rgba(0, 0, 0, 0)");
+    
+    // 恢復 GameScene 的背景顏色
+    const gameScene = this.scene.get("GameScene");
+    if (gameScene) {
+      gameScene.cameras.main.setBackgroundColor("#4488AA");
+    }
+
+    // 恢復 HUD 顯示
+    this.setHUDVisibility(true);
+
+    // 使用 GameManager 恢復遊戲
+    this.gameManager.setPause(false);
   }
 }

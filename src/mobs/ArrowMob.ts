@@ -9,6 +9,8 @@ export class ArrowMob extends Phaser.Physics.Arcade.Image {
   public damage: number = 0;
   private lifetime: number = 1500;
   private lifetimeEvent?: Phaser.Time.TimerEvent;
+  private savedVelocity: { x: number; y: number } | null = null;
+  private wasPaused: boolean = false;
 
   constructor(scene: Phaser.Scene, x: number, y: number, key = "arrow") {
     super(scene, x, y, key);
@@ -31,7 +33,10 @@ export class ArrowMob extends Phaser.Physics.Arcade.Image {
     this.setRotation(angle);
 
     const speed = 600;
-    this.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+    const velocityX = Math.cos(angle) * speed;
+    const velocityY = Math.sin(angle) * speed;
+    this.setVelocity(velocityX, velocityY);
+    this.savedVelocity = { x: velocityX, y: velocityY };
 
     // 取消之前的計時器（避免多重 destroy）
     if (this.lifetimeEvent) {
@@ -54,11 +59,25 @@ export class ArrowMob extends Phaser.Physics.Arcade.Image {
   preUpdate(t: number, dt: number) {
     super.update(t, dt);
     const gameScene = this.scene as GameScene;
+    const isPaused = gameScene.isPaused;
 
-    // 暫停期間不更新
-    if (gameScene.isPaused) {
-      this.body!.stop(); // 停止物理
-      return;
+    // 處理暫停狀態變化
+    if (isPaused && !this.wasPaused) {
+      // 剛進入暫停狀態：保存當前速度並停止
+      if (this.body && this.body.velocity) {
+        this.savedVelocity = {
+          x: this.body.velocity.x,
+          y: this.body.velocity.y
+        };
+        this.body.stop();
+      }
+      this.wasPaused = true;
+    } else if (!isPaused && this.wasPaused) {
+      // 剛從暫停恢復：恢復保存的速度
+      if (this.body && this.savedVelocity) {
+        this.setVelocity(this.savedVelocity.x, this.savedVelocity.y);
+      }
+      this.wasPaused = false;
     }
   }
 
