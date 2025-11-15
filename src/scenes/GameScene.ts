@@ -21,6 +21,14 @@ type WASD = {
 // Define the shape of the explosion data sent from the Creeper or TNT
 type ExplosionData = { x: number; y: number; damage: number; radius: number };
 
+export const GLOBAL_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: "Microsoft JhengHei",
+  color: "#ffffff",
+  fontSize: "32px",
+  backgroundColor: "#00000000",
+  padding: { top: 10, bottom: 10, left: 10, right: 10 }
+};
+
 export default class GameScene extends Phaser.Scene {
   playerObj!: Player;
   private mobGroup!: Phaser.Physics.Arcade.Group;

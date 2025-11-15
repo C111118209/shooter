@@ -7,6 +7,7 @@ import {
   SpeedBoostDecorator,
 } from "../player/IPlayerDecorator";
 import type { IPlayerDecorator } from "../player/IPlayerDecorator";
+import { GLOBAL_TEXT_STYLE } from "./GameScene";
 
 export default class UIScene extends Phaser.Scene {
   private gameManager!: GameManager;
@@ -118,35 +119,42 @@ export default class UIScene extends Phaser.Scene {
 
     const { centerX, centerY } = this.cameras.main;
 
+    // 主標題（大字）
     const mainText = this.add
-      .text(0, -100, "Minecraft Survivors", {
-        fontSize: "72px",
-        color: "#fff",
-        backgroundColor: "#000000aa",
-        padding: { x: 30, y: 15 },
-      })
+      .text(0, -100, "射擊遊戲", { ...GLOBAL_TEXT_STYLE, fontSize: "72px", padding: { x: 30, y: 15 } })
       .setOrigin(0.5);
 
+    // 副標題
+    const subText = this.add
+      .text(0, -30, "數字鍵：[1]弓箭 [2]劍 [3]TNT", { ...GLOBAL_TEXT_STYLE, fontSize: "32px", backgroundColor: "#00000077" })
+      .setOrigin(0.5);
+
+    // 開始遊戲按鈕
     const startButton = this.add
-      .text(0, 50, "開始遊戲", {
-        fontSize: "48px",
-        color: "#ffffff",
-        backgroundColor: "#228b22",
-        padding: { x: 30, y: 15 },
-      })
+      .text(0, 50, "開始遊戲", { ...GLOBAL_TEXT_STYLE, fontSize: "48px", backgroundColor: "#228b22" })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true })
       .on("pointerdown", () => this.startGame())
       .on("pointerover", () => startButton.setBackgroundColor("#3cb371"))
       .on("pointerout", () => startButton.setBackgroundColor("#228b22"));
 
+    // GitHub 連結
+    const githubLink = this.add
+      .text(0, 150, "GitHub 專案連結", { ...GLOBAL_TEXT_STYLE, fontSize: "24px", color: "#00aaff", backgroundColor: "#00000055" })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerdown", () => window.open("https://github.com/C111118209/shooter", "_blank"))
+      .on("pointerover", () => githubLink.setStyle({ color: "#66ddff" }))
+      .on("pointerout", () => githubLink.setStyle({ color: "#00aaff" }));
+
+    // 將所有文字加入容器
     this.mainMenuContainer = this.add
-      .container(centerX, centerY, [mainText, startButton])
+      .container(centerX, centerY, [mainText, subText, startButton, githubLink])
       .setScrollFactor(0)
       .setDepth(300)
       .setVisible(true);
 
-    // 確保 GameScene 處於暫停狀態（通過 GameManager）
+    // 暫停遊戲
     if (this.gameManager) {
       this.gameManager.setPause(true);
     }
@@ -178,8 +186,8 @@ export default class UIScene extends Phaser.Scene {
         16,
         `得分: ${this.currentScore} | HP: ${this.currentHealth}/${this.currentMaxHealth}`,
         {
+          ...GLOBAL_TEXT_STYLE,
           fontSize: "24px",
-          color: "#ffffff",
           backgroundColor: "#00000088",
           padding: { x: 10, y: 5 },
         }
@@ -200,8 +208,8 @@ export default class UIScene extends Phaser.Scene {
         85,
         `等級: ${this.currentLevel} | XP: ${this.currentXp}/${this.currentXpToNextLevel}`,
         {
+          ...GLOBAL_TEXT_STYLE,
           fontSize: "20px",
-          color: "#ffffff",
           backgroundColor: "#00000088",
           padding: { x: 10, y: 5 },
         }
@@ -218,8 +226,8 @@ export default class UIScene extends Phaser.Scene {
     // 武器顯示 (右上角)
     this.weaponNameText = this.add
       .text(width - 15, 16, "🏹 弓", {
+        ...GLOBAL_TEXT_STYLE,
         fontSize: "20px",
-        color: "#fff",
         backgroundColor: "#00000088",
         padding: { x: 5, y: 2 },
       })
@@ -233,9 +241,8 @@ export default class UIScene extends Phaser.Scene {
     const { centerX, centerY } = this.cameras.main;
     this.pauseText = this.add
       .text(centerX, centerY, "遊戲暫停 (ESC/P)", {
-        // 更新為 ESC/P
+        ...GLOBAL_TEXT_STYLE,
         fontSize: "60px",
-        color: "#fff",
         backgroundColor: "#000000aa",
         padding: { x: 20, y: 10 },
       })
@@ -254,6 +261,7 @@ export default class UIScene extends Phaser.Scene {
       .setDepth(1);
     const title = this.add
       .text(0, -100, "遊戲結束", {
+        ...GLOBAL_TEXT_STYLE,
         fontSize: "64px",
         color: "#ff0000",
         padding: { x: 15, y: 10 },
@@ -263,8 +271,8 @@ export default class UIScene extends Phaser.Scene {
 
     const finalScoreText = this.add
       .text(0, 0, `最終得分: ${this.currentScore}`, {
+        ...GLOBAL_TEXT_STYLE,
         fontSize: "36px",
-        color: "#ffffff",
         padding: { x: 15, y: 10 },
       })
       .setOrigin(0.5)
@@ -272,8 +280,8 @@ export default class UIScene extends Phaser.Scene {
 
     const restartButton = this.add
       .text(0, 100, "重新開始", {
+        ...GLOBAL_TEXT_STYLE,
         fontSize: "36px",
-        color: "#ffffff",
         backgroundColor: "#4caf50",
         padding: { x: 20, y: 10 },
       })
@@ -415,7 +423,7 @@ export default class UIScene extends Phaser.Scene {
   /** 切換暫停文字顯示 */
   private togglePauseText(isPaused: boolean) {
     // 如果升級選單正在顯示，不顯示暫停文字
-    if (this.upgradeMenuContainer.visible) {
+    if (this.upgradeMenuContainer.visible || this.player?.isDead) {
       this.pauseText.setVisible(false);
       return;
     }
@@ -445,7 +453,7 @@ export default class UIScene extends Phaser.Scene {
 
   /** 獲取所有可用的升級選項 */
   private getAvailableUpgrades(): {
-    UpgradeClass: { new (player: Player): IPlayerDecorator };
+    UpgradeClass: { new(player: Player): IPlayerDecorator };
     description: string;
   }[] {
     return [
@@ -475,6 +483,7 @@ export default class UIScene extends Phaser.Scene {
     // 標題文字
     const titleText = this.add
       .text(0, -250, "等級提升！選擇一個加成", {
+        ...GLOBAL_TEXT_STYLE,
         fontSize: "48px",
         color: "#ffd700",
         backgroundColor: "#000000aa",
@@ -497,14 +506,14 @@ export default class UIScene extends Phaser.Scene {
 
     // 先隱藏暫停文字，避免在升級選單顯示時出現
     this.pauseText.setVisible(false);
-    
+
     // 暫停遊戲
     this.gameManager.setPause(true);
     this.setHUDVisibility(false);
 
     // 設置半透明背景（UIScene 的相機）
     this.cameras.main.setBackgroundColor("rgba(0, 0, 0, 0.7)");
-    
+
     // 設置 GameScene 的相機背景為半透明
     const gameScene = this.scene.get("GameScene");
     if (gameScene) {
@@ -549,7 +558,7 @@ export default class UIScene extends Phaser.Scene {
     x: number,
     y: number,
     description: string,
-    UpgradeClass: { new (player: Player): IPlayerDecorator }
+    UpgradeClass: { new(player: Player): IPlayerDecorator }
   ) {
     const box = this.add
       .rectangle(x, y, 180, 180, 0x333333)
@@ -559,8 +568,8 @@ export default class UIScene extends Phaser.Scene {
 
     const text = this.add
       .text(x, y, description, {
+        ...GLOBAL_TEXT_STYLE,
         fontSize: "20px",
-        color: "#ffffff",
         wordWrap: { width: 160 },
         align: "center",
       })
@@ -589,7 +598,7 @@ export default class UIScene extends Phaser.Scene {
 
     // 恢復 UIScene 的背景顏色（透明或默認）
     this.cameras.main.setBackgroundColor("rgba(0, 0, 0, 0)");
-    
+
     // 恢復 GameScene 的背景顏色
     const gameScene = this.scene.get("GameScene");
     if (gameScene) {
