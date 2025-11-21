@@ -3,6 +3,8 @@
 ## 專案概述
 這是一個使用 TypeScript 和 Phaser 3 遊戲引擎開發的 2D 俯視射擊遊戲，採用模組化架構，並實作了多種設計模式，用於軟體設計模式教學演示。
 
+[簡報連結](https://gamma.app/docs/-wqul8dt7tqrkyel)
+
 ---
 
 ## 核心約束
