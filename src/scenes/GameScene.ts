@@ -3,7 +3,6 @@ import { MobFactory } from "../mobs/MobFactory";
 import { BaseMob } from "../mobs/BaseMob";
 import { ArrowMob } from "../mobs/ArrowMob";
 import { SkeletonMob } from "../mobs/Skeleton";
-
 import { Player } from "../player/Player";
 import { BowStrategy } from "../weapons/BowStrategy";
 import { SwordStrategy } from "../weapons/SwordStrategy";
@@ -12,13 +11,13 @@ import { XpMob } from "../mobs/XpMob";
 import { GameManager } from "../core/GameManager";
 import type { MapData } from "../maps/MapTypes";
 
+// ... Type definitions and GLOBAL_TEXT_STYLE remain same ...
 type WASD = {
   up: Phaser.Input.Keyboard.Key;
   down: Phaser.Input.Keyboard.Key;
   left: Phaser.Input.Keyboard.Key;
   right: Phaser.Input.Keyboard.Key;
 };
-
 type ExplosionData = { x: number; y: number; damage: number; radius: number };
 
 export const GLOBAL_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -43,28 +42,30 @@ export default class GameScene extends Phaser.Scene {
   private mapColliders: Phaser.Physics.Arcade.Collider[] = [];
   private mapTileSize: number = 64;
   private currentMap?: MapData;
+  private availableSpawnPoints: { x: number; y: number }[] = [];
+  private coreIcon?: Phaser.Physics.Arcade.Sprite;
+  private pauseKey!: Phaser.Input.Keyboard.Key;
+  private gameTimers: Phaser.Time.TimerEvent[] = [];
 
   get score(): number {
     return this._score;
   }
-
   set score(value: number) {
     this._score = value;
     this.gameManager.updateScore(this._score);
   }
 
+  // 快捷屬性：取得是否暫停
   public get isPaused(): boolean {
-    return this.gameManager.getPaused();
+    return this.gameManager.isPaused;
   }
-
-  private pauseKey!: Phaser.Input.Keyboard.Key;
-  private gameTimers: Phaser.Time.TimerEvent[] = [];
 
   constructor() {
     super("GameScene");
   }
 
   preload() {
+    // ... load images ...
     this.load.image("steve", "assets/mobs/steve.jpg");
     this.load.image("zombie", "assets/mobs/zombie.jpg");
     this.load.image("skeleton", "assets/mobs/skeleton.jpg");
@@ -80,17 +81,20 @@ export default class GameScene extends Phaser.Scene {
   create() {
     this.gameManager = GameManager.getInstance();
     const uiScene = this.scene.get("UIScene");
-    if (uiScene) {
-      this.gameManager.initialize(this, uiScene);
-    }
+    const slidingPuzzleScene = this.scene.get("SlidingPuzzleScene");
+    this.gameManager.initialize(this, uiScene, slidingPuzzleScene!);
 
     this.gameManager.reset();
     this._score = 0;
     this.enemies = [];
-    this.gameTimers.forEach((timer) => {
-      if (timer && !timer.hasDispatched) timer.destroy();
-    });
+
+    if (this.gameTimers) this.gameTimers.forEach((t) => t.destroy());
     this.gameTimers = [];
+
+    if (this.mapGraphics) {
+      this.mapGraphics.destroy();
+      this.mapGraphics = undefined;
+    }
 
     this.physics.world.setBounds(0, 0, this.scale.width, this.scale.height);
     this.cameras.main.setBackgroundColor("#4488AA");
@@ -98,12 +102,19 @@ export default class GameScene extends Phaser.Scene {
     this.playerObj = new Player(this, 400, 300, "steve", new BowStrategy());
     this.playerObj.sprite.setActive(false).setVisible(false);
 
+    if (!this.wallGroup || !this.wallGroup.scene) {
+      this.wallGroup = this.physics.add.staticGroup();
+    } else {
+      this.wallGroup.clear(true, true);
+    }
+
     this.mobGroup = this.physics.add.group({
       classType: BaseMob,
       runChildUpdate: true,
     });
 
-    this.applyMapData(this.gameManager.getMapData() ?? this.createDefaultMap());
+    const mapData = this.gameManager.getMapData() ?? this.createDefaultMap();
+    this.applyMapData(mapData);
 
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys({
@@ -123,21 +134,18 @@ export default class GameScene extends Phaser.Scene {
 
     if (!this.scene.isActive("UIScene")) {
       this.scene.launch("UIScene", { player: this.playerObj });
-      const updatedUIScene = this.scene.get("UIScene");
-      if (updatedUIScene) {
-        this.gameManager.initialize(this, updatedUIScene);
-      }
     }
+
+    this.spawnCoreIcon();
 
     this.gameManager.once("game-started", this.startGame, this);
     this.gameManager.once("player-die", this.handlePlayerDeath, this);
-    this.gameManager.setPause(true);
+
+    // 初始狀態：由於主選單會開啟，UIScene 負責設定 system-pause
   }
 
   private startGame() {
-    this.startMiniGame();
-
-    this.gameManager.setPause(false);
+    // 遊戲開始後，確保沒有任何暫停
     this.playerObj.sprite.setActive(true).setVisible(true);
     this.cameras.main.startFollow(this.playerObj.sprite, true, 0.1, 0.1);
     this.playerObj.setWeapon(new BowStrategy(), "bow");
@@ -146,26 +154,36 @@ export default class GameScene extends Phaser.Scene {
     this.startMobSpawning();
   }
 
-  public applyMapData(mapData: MapData) {
-    this.currentMap = mapData;
-    if (!this.mapGraphics) {
-      this.mapGraphics = this.add.graphics({ x: 0, y: 0 }).setDepth(0);
-    } else {
-      this.mapGraphics.clear();
-    }
+  // ... (spawnCoreIcon, applyMapData, createDefaultMap 保持不變) ...
+  private spawnCoreIcon() {
+    if (this.availableSpawnPoints.length === 0) return;
+    const spawnPoint = Phaser.Utils.Array.GetRandom(this.availableSpawnPoints);
+    this.coreIcon = this.physics.add.sprite(spawnPoint.x, spawnPoint.y, "tnt");
+    this.coreIcon.setTint(0x00ff00);
+    this.physics.add.overlap(
+      this.playerObj.sprite,
+      this.coreIcon,
+      this.triggerMiniGame,
+      undefined,
+      this
+    );
+  }
 
-    if (!this.wallGroup) {
+  private applyMapData(mapData: MapData) {
+    // ... (完全保持原樣) ...
+    this.currentMap = mapData;
+    if (this.mapGraphics) this.mapGraphics.destroy();
+    this.mapGraphics = this.add.graphics({ x: 0, y: 0 }).setDepth(0);
+    this.availableSpawnPoints = [];
+    if (!this.wallGroup || !this.wallGroup.scene)
       this.wallGroup = this.physics.add.staticGroup();
-    } else {
-      this.wallGroup.clear(true, true);
-    }
+    else this.wallGroup.clear(true, true);
 
     const tileSize = this.mapTileSize;
     const rows = mapData.grid.length;
     const cols = mapData.grid[0].length;
     const mapWidth = cols * tileSize;
     const mapHeight = rows * tileSize;
-
     const viewWidth = this.scale.width;
     const viewHeight = this.scale.height;
     const offsetX = mapWidth < viewWidth ? (viewWidth - mapWidth) / 2 : 0;
@@ -176,18 +194,23 @@ export default class GameScene extends Phaser.Scene {
 
     mapData.grid.forEach((row, y) => {
       row.forEach((cell, x) => {
-        if (cell !== "wall") return;
         const worldX = offsetX + x * tileSize + tileSize / 2;
         const worldY = offsetY + y * tileSize + tileSize / 2;
-        const wall = this.add
-          .rectangle(worldX, worldY, tileSize, tileSize, 0x555555, 1)
-          .setStrokeStyle(1, 0x777777)
-          .setDepth(20);
-        this.physics.add.existing(wall, true);
-        const body = wall.body as Phaser.Physics.Arcade.StaticBody;
-        body.setSize(tileSize, tileSize);
-        body.setOffset(0, 0);
-        this.wallGroup!.add(wall);
+        if (cell === "wall") {
+          const wall = this.add
+            .rectangle(worldX, worldY, tileSize, tileSize, 0x555555, 1)
+            .setStrokeStyle(1, 0x777777)
+            .setDepth(20);
+          this.wallGroup!.add(wall);
+          const body = wall.body as Phaser.Physics.Arcade.StaticBody;
+          if (body) {
+            body.setSize(tileSize, tileSize);
+            body.setOffset(0, 0);
+            body.updateFromGameObject();
+          }
+        } else if (cell === "grass") {
+          this.availableSpawnPoints.push({ x: worldX, y: worldY });
+        }
       });
     });
 
@@ -202,27 +225,59 @@ export default class GameScene extends Phaser.Scene {
         offsetY + mapHeight / 2
       );
     }
-
     this.rebuildMapColliders();
   }
+
+  private rebuildMapColliders() {
+    // ... (保持原樣) ...
+    this.mapColliders.forEach((c) => c.destroy());
+    this.mapColliders = [];
+    if (!this.wallGroup) return;
+    this.mapColliders.push(
+      this.physics.add.collider(this.playerObj.sprite, this.wallGroup)
+    );
+    this.mapColliders.push(
+      this.physics.add.collider(this.mobGroup, this.wallGroup)
+    );
+    this.mapColliders.push(
+      this.physics.add.collider(this.playerObj.bullets, this.wallGroup, (b) =>
+        this.handleProjectileHitWall(b as any)
+      )
+    );
+  }
+
+  private createDefaultMap(): MapData {
+    const rows = 16,
+      cols = 16;
+    const grid = Array.from({ length: rows }, (_, y) =>
+      Array.from({ length: cols }, (_, x) =>
+        x === 0 || y === 0 || x === cols - 1 || y === rows - 1
+          ? "wall"
+          : "grass"
+      )
+    ) as any;
+    return { grid };
+  }
+  // ...
 
   private setupKeyHandlers() {
     this.pauseKey = this.input.keyboard!.addKey(
       Phaser.Input.Keyboard.KeyCodes.P
     );
-    this.pauseKey.on("down", this.togglePause, this);
+    // 使用 toggleUserPause
+    this.pauseKey.on("down", this.toggleUserPause, this);
     this.input
       .keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
-      .on("down", this.togglePause, this);
+      .on("down", this.toggleUserPause, this);
 
     const keys = { ONE: "bow", TWO: "iron_sword", THREE: "tnt" };
+    // ... weapon keys setup ...
     const strategies = {
       bow: BowStrategy,
       iron_sword: SwordStrategy,
       tnt: TNTStrategy,
     };
     const names = { bow: "🏹 弓", iron_sword: "⚔ 劍", tnt: "💣 TNT" };
-
     Object.entries(keys).forEach(([key, id]) => {
       this.input.keyboard
         ?.addKey(
@@ -244,6 +299,7 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  // ... setupCollisions, startMobSpawning, handleProjectileHitWall, update, handleMobDeath, etc. (保持原樣) ...
   private setupCollisions() {
     this.physics.add.overlap(
       this.playerObj.bullets,
@@ -272,36 +328,6 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * 修正重點：在這裡建立玩家子彈與牆的碰撞。
-   * 骷髏的箭矢因為是動態生成的，我們會在 spawnRandomMob 裡面處理。
-   */
-  private rebuildMapColliders() {
-    this.mapColliders.forEach((c) => c.destroy());
-    this.mapColliders = [];
-    if (!this.wallGroup) return;
-
-    this.mapColliders.push(
-      this.physics.add.collider(this.playerObj.sprite, this.wallGroup)
-    );
-    this.mapColliders.push(
-      this.physics.add.collider(this.mobGroup, this.wallGroup)
-    );
-
-    // 玩家子彈碰撞牆壁
-    this.mapColliders.push(
-      this.physics.add.collider(
-        this.playerObj.bullets,
-        this.wallGroup,
-        (bulletObj) => {
-          this.handleProjectileHitWall(
-            bulletObj as Phaser.Physics.Arcade.Image
-          );
-        }
-      )
-    );
-  }
-
   private handleProjectileHitWall(
     projectile: Phaser.Physics.Arcade.Image & {
       damage?: number;
@@ -326,14 +352,12 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
     this.playerObj.weaponSprite.setVisible(true);
-
     this.playerObj.move(this.cursors, this.wasd, 200);
     this.playerObj.updateWeaponRotation(this.input.activePointer);
 
     this.enemies.forEach((mob) => {
       if (mob.active) {
         mob.updateBehavior();
-        // 處理骷髏子彈與玩家碰撞
         if (mob instanceof SkeletonMob && mob.bullets) {
           this.physics.overlap(
             mob.bullets,
@@ -356,7 +380,6 @@ export default class GameScene extends Phaser.Scene {
       );
     }
 
-    // TNT 爆炸監聽
     this.playerObj.bullets.children.each((obj) => {
       const tnt = obj as any;
       if (tnt.texture.key === "tnt" && !tnt.listeners("explode").length) {
@@ -375,58 +398,39 @@ export default class GameScene extends Phaser.Scene {
 
   private spawnRandomMob() {
     if (this.isPaused || this.playerObj.isDead) return;
-
+    if (this.availableSpawnPoints.length === 0) return;
+    const spawnPoint = Phaser.Utils.Array.GetRandom(this.availableSpawnPoints);
     const types = ["zombie", "skeleton", "creeper", "spider"];
     const type = Phaser.Utils.Array.GetRandom(types);
-    const spawnPadding = 50;
-    let x = 0,
-      y = 0;
-
-    if (Phaser.Math.RND.pick([true, false])) {
-      x = Phaser.Math.RND.pick([
-        -spawnPadding,
-        this.scale.width + spawnPadding,
-      ]);
-      y = Phaser.Math.Between(-spawnPadding, this.scale.height + spawnPadding);
-    } else {
-      x = Phaser.Math.Between(-spawnPadding, this.scale.width + spawnPadding);
-      y = Phaser.Math.RND.pick([
-        -spawnPadding,
-        this.scale.height + spawnPadding,
-      ]);
-    }
-
-    const mob = MobFactory.spawn(type, this, { x, y }, this.playerObj);
+    const mob = MobFactory.spawn(
+      type,
+      this,
+      { x: spawnPoint.x, y: spawnPoint.y },
+      this.playerObj
+    );
     this.mobGroup.add(mob);
     this.enemies.push(mob);
-
-    // 🆕 核心修正：動態為新生成的骷髏箭矢綁定牆壁碰撞
     if (type === "skeleton" && (mob as any).bullets && this.wallGroup) {
-      this.physics.add.collider(
-        (mob as any).bullets,
-        this.wallGroup,
-        (proj) => {
-          this.handleProjectileHitWall(proj as Phaser.Physics.Arcade.Image);
-        }
+      this.physics.add.collider((mob as any).bullets, this.wallGroup, (proj) =>
+        this.handleProjectileHitWall(proj as Phaser.Physics.Arcade.Image)
       );
     }
-
     mob.on("mob-die", this.handleMobDeath, this);
     mob.on("creeper-explode", this.processExplosion, this);
   }
 
-  // ------------------------------------
-  // 以下為其餘工具方法 (保持不變)
-  // ------------------------------------
-
-  public togglePause() {
+  // 改名為 toggleUserPause
+  public toggleUserPause() {
     if (this.playerObj.isDead || !this.mobSpawnTimer) return;
-    this.gameManager.togglePause();
-    const paused = this.gameManager.getPaused();
+    this.gameManager.toggleUserPause();
+
+    // Timer 的暫停同步處理
+    const paused = this.gameManager.isPaused;
     if (this.mobSpawnTimer) this.mobSpawnTimer.paused = paused;
     this.gameTimers.forEach((t) => (t.paused = paused));
   }
 
+  // ... rest of event handlers (handleMobDeath, handlePlayerDeath, processExplosion etc.) ...
   private handleMobDeath(mob: BaseMob) {
     this.score += 10;
     this.enemies = this.enemies.filter((m) => m !== mob);
@@ -496,13 +500,11 @@ export default class GameScene extends Phaser.Scene {
         this
       );
     }
-
     const zone = this.add.zone(x, y, radius * 2, radius * 2);
     this.physics.world.enable(zone);
     (zone.body as Phaser.Physics.Arcade.Body)
       .setCircle(radius)
       .setOffset(-radius, -radius);
-
     this.physics.overlap(
       zone,
       this.mobGroup,
@@ -514,7 +516,6 @@ export default class GameScene extends Phaser.Scene {
       undefined,
       this
     );
-
     this.time.delayedCall(100, () => zone.destroy());
     const circle = this.add.circle(x, y, radius * 0.5, 0xff0000, 0.5);
     this.tweens.add({
@@ -526,23 +527,15 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  private createDefaultMap(): MapData {
-    const rows = 8,
-      cols = 12;
-    const grid = Array.from({ length: rows }, (_, y) =>
-      Array.from({ length: cols }, (_, x) =>
-        x === 0 || y === 0 || x === cols - 1 || y === rows - 1
-          ? "wall"
-          : "grass"
-      )
-    ) as any;
-    return { grid };
-  }
+  private triggerMiniGame(player: any, icon: any) {
+    icon.destroy();
 
-  // 在 UIScene 某處
-  private startMiniGame() {
-    this.gameManager.setPause(true); // 透過你的 GameManager 暫停主遊戲
+    // [System Pause] 進入小遊戲，使用系統暫停
+    this.gameManager.setSystemPause("mini-game", true);
+
+    // 場景操作
     this.scene.pause("GameScene");
+    this.scene.pause("UIScene");
     this.scene.launch("SlidingPuzzleScene");
   }
 }

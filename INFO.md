@@ -1,6 +1,8 @@
 to do
-- tnt texture 
-- explode texture and animation
+- [x] tnt texture 
+- [ ] explode texture and animation
+- [ ] push into wall fix
+- [ ] 
 
 
 lazy to do
