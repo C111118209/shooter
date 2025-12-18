@@ -11,7 +11,6 @@ import { XpMob } from "../mobs/XpMob";
 import { GameManager } from "../core/GameManager";
 import type { MapData } from "../maps/MapTypes";
 
-// ... Type definitions and GLOBAL_TEXT_STYLE remain same ...
 type WASD = {
   up: Phaser.Input.Keyboard.Key;
   down: Phaser.Input.Keyboard.Key;
@@ -44,6 +43,10 @@ export default class GameScene extends Phaser.Scene {
   private currentMap?: MapData;
   private availableSpawnPoints: { x: number; y: number }[] = [];
   private coreIcon?: Phaser.Physics.Arcade.Sprite;
+  private killsSinceLastCoreIcon: number = 0;
+  // 記錄玩家上一個「沒卡在牆裡」的安全位置
+  private lastSafePlayerX: number = 0;
+  private lastSafePlayerY: number = 0;
   private pauseKey!: Phaser.Input.Keyboard.Key;
   private gameTimers: Phaser.Time.TimerEvent[] = [];
 
@@ -76,6 +79,7 @@ export default class GameScene extends Phaser.Scene {
     this.load.image("iron_sword", "assets/weapons/iron_sword.webp");
     this.load.image("tnt", "assets/weapons/tnt.png");
     this.load.image("xp_ball", "assets/mobs/xp_ball.png");
+    this.load.image("slidingPuzzle", "assets/slidingPuzzle.png");
   }
 
   create() {
@@ -87,6 +91,8 @@ export default class GameScene extends Phaser.Scene {
     this.gameManager.reset();
     this._score = 0;
     this.enemies = [];
+    this.killsSinceLastCoreIcon = 0;
+    this.coreIcon = undefined;
 
     if (this.gameTimers) this.gameTimers.forEach((t) => t.destroy());
     this.gameTimers = [];
@@ -115,6 +121,10 @@ export default class GameScene extends Phaser.Scene {
 
     const mapData = this.gameManager.getMapData() ?? this.createDefaultMap();
     this.applyMapData(mapData);
+
+    // 初始化安全位置為玩家出生點
+    this.lastSafePlayerX = this.playerObj.sprite.x;
+    this.lastSafePlayerY = this.playerObj.sprite.y;
 
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys({
@@ -158,8 +168,13 @@ export default class GameScene extends Phaser.Scene {
   private spawnCoreIcon() {
     if (this.availableSpawnPoints.length === 0) return;
     const spawnPoint = Phaser.Utils.Array.GetRandom(this.availableSpawnPoints);
-    this.coreIcon = this.physics.add.sprite(spawnPoint.x, spawnPoint.y, "tnt");
+    this.coreIcon = this.physics.add.sprite(
+      spawnPoint.x,
+      spawnPoint.y,
+      "slidingPuzzle"
+    );
     this.coreIcon.setTint(0x00ff00);
+    this.coreIcon.scale = 0.05;
     this.physics.add.overlap(
       this.playerObj.sprite,
       this.coreIcon,
@@ -170,7 +185,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private applyMapData(mapData: MapData) {
-    // ... (完全保持原樣) ...
     this.currentMap = mapData;
     if (this.mapGraphics) this.mapGraphics.destroy();
     this.mapGraphics = this.add.graphics({ x: 0, y: 0 }).setDepth(0);
@@ -229,7 +243,6 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private rebuildMapColliders() {
-    // ... (保持原樣) ...
     this.mapColliders.forEach((c) => c.destroy());
     this.mapColliders = [];
     if (!this.wallGroup) return;
@@ -258,7 +271,6 @@ export default class GameScene extends Phaser.Scene {
     ) as any;
     return { grid };
   }
-  // ...
 
   private setupKeyHandlers() {
     this.pauseKey = this.input.keyboard!.addKey(
@@ -282,7 +294,7 @@ export default class GameScene extends Phaser.Scene {
       this.input.keyboard
         ?.addKey(
           Phaser.Input.Keyboard.KeyCodes[
-            key as keyof typeof Phaser.Input.Keyboard.KeyCodes
+          key as keyof typeof Phaser.Input.Keyboard.KeyCodes
           ]
         )
         .on("down", () => {
@@ -299,7 +311,6 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
-  // ... setupCollisions, startMobSpawning, handleProjectileHitWall, update, handleMobDeath, etc. (保持原樣) ...
   private setupCollisions() {
     this.physics.add.overlap(
       this.playerObj.bullets,
@@ -353,7 +364,38 @@ export default class GameScene extends Phaser.Scene {
     }
     this.playerObj.weaponSprite.setVisible(true);
     this.playerObj.move(this.cursors, this.wasd, 200);
+
+    // [新增] 強制根據主攝影機的位置，更新滑鼠指標的世界座標
+    // 這樣即使滑鼠不動，隨著攝影機移動，指向的世界座標也會正確更新
+    this.input.activePointer.updateWorldPoint(this.cameras.main);
     this.playerObj.updateWeaponRotation(this.input.activePointer);
+
+    // 若玩家被怪物推進牆裡，將其拉回最近的安全位置
+    if (this.wallGroup) {
+      let isInsideWall = false;
+      this.physics.overlap(
+        this.playerObj.sprite,
+        this.wallGroup,
+        () => {
+          isInsideWall = true;
+        },
+        undefined,
+        this
+      );
+
+      if (isInsideWall) {
+        // 傳送回上一個「安全」的位置並停止速度
+        this.playerObj.sprite.setPosition(
+          this.lastSafePlayerX,
+          this.lastSafePlayerY
+        );
+        this.playerObj.sprite.setVelocity(0, 0);
+      } else {
+        // 記錄當前位置為新的安全位置
+        this.lastSafePlayerX = this.playerObj.sprite.x;
+        this.lastSafePlayerY = this.playerObj.sprite.y;
+      }
+    }
 
     this.enemies.forEach((mob) => {
       if (mob.active) {
@@ -430,7 +472,6 @@ export default class GameScene extends Phaser.Scene {
     this.gameTimers.forEach((t) => (t.paused = paused));
   }
 
-  // ... rest of event handlers (handleMobDeath, handlePlayerDeath, processExplosion etc.) ...
   private handleMobDeath(mob: BaseMob) {
     this.score += 10;
     this.enemies = this.enemies.filter((m) => m !== mob);
@@ -443,6 +484,16 @@ export default class GameScene extends Phaser.Scene {
     xp.on("xp-collected", (amount: number) =>
       this.playerObj.addXp(amount, this)
     );
+
+    // 只統計一般怪物的擊殺數（排除經驗球）
+    if (!(mob instanceof XpMob)) {
+      this.killsSinceLastCoreIcon += 1;
+      // 若場上沒有 coreIcon，且擊殺數達 15，則生成一個
+      if (!this.coreIcon && this.killsSinceLastCoreIcon >= 15) {
+        this.spawnCoreIcon();
+        this.killsSinceLastCoreIcon = 0;
+      }
+    }
   }
 
   private handlePlayerDeath() {
@@ -529,6 +580,7 @@ export default class GameScene extends Phaser.Scene {
 
   private triggerMiniGame(player: any, icon: any) {
     icon.destroy();
+    this.coreIcon = undefined;
 
     // [System Pause] 進入小遊戲，使用系統暫停
     this.gameManager.setSystemPause("mini-game", true);

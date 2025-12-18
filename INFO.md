@@ -1,8 +1,14 @@
 to do
 - [x] tnt texture 
 - [ ] explode texture and animation
-- [ ] push into wall fix
-- [ ] 
+- [x] push into wall fix
+- [ ] new enemies
+- [ ] other design pattern
+- [ ] sliding puzzle maxLimit gone wtf
+
+
+bug
+- [ ] ESC when upgrading makes enemies stop spawning
 
 
 lazy to do

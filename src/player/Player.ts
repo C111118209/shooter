@@ -93,14 +93,7 @@ export class Player {
     this.sprite.setData("isInvuln", true);
     this.sprite.setTint(0xdd0000);
 
-    if (attacker) {
-      const ax = (attacker as any).x ?? this.sprite.x;
-      const ay = (attacker as any).y ?? this.sprite.y;
-      const dx = this.sprite.x - ax;
-      const dy = this.sprite.y - ay;
-      this.sprite.setVelocity(dx * 5, dy * 5);
-      scene.time.delayedCall(120, () => this.sprite.setVelocity(0));
-    }
+    // 此版本不做額外的擊退，只處理受傷狀態與無敵時間
 
     scene.time.delayedCall(500, () => {
       this.sprite.setData("isInvuln", false);
