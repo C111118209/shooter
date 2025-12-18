@@ -45,12 +45,14 @@ export class Player {
     this.sprite = scene.physics.add.sprite(x, y, texture);
     this.sprite.setCollideWorldBounds(true);
     this.sprite.setScale(0.8);
+    this.sprite.setDepth(50); // 確保玩家在牆與地板之上顯示
 
     this.weapon = initialWeapon;
 
     this.weaponSprite = scene.add.image(x, y, "iron_sword");
     this.weaponSprite.setOrigin(0.1, 0.5);
     this.weaponSprite.setScale(0.4);
+    this.weaponSprite.setDepth(55); // 武器圖層再高一點，避免被牆蓋住
 
     this.bullets = scene.physics.add.group({
       classType: ArrowMob,

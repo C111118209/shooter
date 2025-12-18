@@ -8,6 +8,7 @@ import {
 } from "../player/IPlayerDecorator";
 import type { IPlayerDecorator } from "../player/IPlayerDecorator";
 import { GLOBAL_TEXT_STYLE } from "./GameScene";
+import { MapFileAdapter } from "../maps/MapFileAdapter";
 
 export default class UIScene extends Phaser.Scene {
   private gameManager!: GameManager;
@@ -35,6 +36,9 @@ export default class UIScene extends Phaser.Scene {
   private currentXpToNextLevel: number = 5;
 
   private player?: Player;
+  private mapFileInput?: HTMLInputElement;
+  private mapAdapter = new MapFileAdapter();
+  private mapStatusText?: Phaser.GameObjects.Text;
 
   constructor() {
     super("UIScene");
@@ -66,6 +70,14 @@ export default class UIScene extends Phaser.Scene {
 
     // 顯示主選單
     this.createMainMenu();
+
+    // Scene 關閉時清理隱藏的檔案輸入元件
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.mapFileInput) {
+        this.mapFileInput.remove();
+        this.mapFileInput = undefined;
+      }
+    });
   }
 
   public handleResize(gameSize: Phaser.Structs.Size) {
@@ -138,9 +150,28 @@ export default class UIScene extends Phaser.Scene {
       .on("pointerover", () => startButton.setBackgroundColor("#3cb371"))
       .on("pointerout", () => startButton.setBackgroundColor("#228b22"));
 
+    // 匯入地圖按鈕
+    const importButton = this.add
+      .text(0, 120, "匯入地圖 (JSON/CSV/TXT)", { ...GLOBAL_TEXT_STYLE, fontSize: "32px", backgroundColor: "#1e90ff" })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerdown", () => this.openMapPicker())
+      .on("pointerover", () => importButton.setBackgroundColor("#3399ff"))
+      .on("pointerout", () => importButton.setBackgroundColor("#1e90ff"));
+
+    // 地圖狀態提示
+    this.mapStatusText = this.add
+      .text(0, 180, "未載入地圖，將使用預設配置", {
+        ...GLOBAL_TEXT_STYLE,
+        fontSize: "20px",
+        backgroundColor: "#00000055",
+        padding: { x: 12, y: 6 },
+      })
+      .setOrigin(0.5);
+
     // GitHub 連結
     const githubLink = this.add
-      .text(0, 150, "GitHub 專案連結", { ...GLOBAL_TEXT_STYLE, fontSize: "24px", color: "#00aaff", backgroundColor: "#00000055" })
+      .text(0, 230, "GitHub 專案連結", { ...GLOBAL_TEXT_STYLE, fontSize: "24px", color: "#00aaff", backgroundColor: "#00000055" })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true })
       .on("pointerdown", () => window.open("https://github.com/C111118209/shooter", "_blank"))
@@ -149,7 +180,7 @@ export default class UIScene extends Phaser.Scene {
 
     // 將所有文字加入容器
     this.mainMenuContainer = this.add
-      .container(centerX, centerY, [mainText, subText, startButton, githubLink])
+      .container(centerX, centerY, [mainText, subText, startButton, importButton, this.mapStatusText, githubLink])
       .setScrollFactor(0)
       .setDepth(300)
       .setVisible(true);
@@ -172,6 +203,53 @@ export default class UIScene extends Phaser.Scene {
 
     // 立即觸發一次 HUD 更新，以確保初始數據正確顯示
     this.updateHUD({});
+  }
+
+  /** 觸發瀏覽器檔案選擇器以匯入地圖 */
+  private openMapPicker() {
+    const input = this.ensureMapFileInput();
+    input.click();
+  }
+
+  /** 確保檔案 input 只建立一次 */
+  private ensureMapFileInput(): HTMLInputElement {
+    if (this.mapFileInput) return this.mapFileInput;
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,.csv,.txt";
+    input.style.display = "none";
+    input.addEventListener("change", async (e) => {
+      const target = e.target as HTMLInputElement;
+      const file = target.files?.[0];
+      if (file) {
+        await this.handleMapFile(file);
+        target.value = "";
+      }
+    });
+
+    document.body.appendChild(input);
+    this.mapFileInput = input;
+    return input;
+  }
+
+  /** 解析並套用選擇的地圖檔案 */
+  private async handleMapFile(file: File) {
+    try {
+      const mapData = await this.mapAdapter.parseFile(file);
+      this.gameManager.setMapData(mapData);
+      this.updateMapStatus(`已載入地圖：${file.name}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "未知錯誤";
+      this.updateMapStatus(`載入失敗：${message}`);
+      console.error(err);
+    }
+  }
+
+  private updateMapStatus(text: string) {
+    if (this.mapStatusText) {
+      this.mapStatusText.setText(text);
+    }
   }
 
   /** 創建 HUD 元素 (分數, 血條, 武器, 等級, 經驗值條) */

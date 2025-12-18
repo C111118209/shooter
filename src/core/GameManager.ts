@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import type { MapData } from "../maps/MapTypes";
 
 /**
  * 遊戲事件類型定義
@@ -28,9 +29,24 @@ export class GameManager extends Phaser.Events.EventEmitter {
   private isPaused: boolean = true;
   private score: number = 0;
   private resizeHandler: (() => void) | null = null;
+  private mapData: MapData | null = null;
 
   public get paused() {
     return this.isPaused;
+  }
+
+  /**
+   * 設定地圖資料並通知 GameScene 應用。
+   */
+  public setMapData(mapData: MapData): void {
+    this.mapData = mapData;
+    if (this.gameScene && typeof (this.gameScene as any).applyMapData === "function") {
+      (this.gameScene as any).applyMapData(mapData);
+    }
+  }
+
+  public getMapData(): MapData | null {
+    return this.mapData;
   }
 
   private constructor() {

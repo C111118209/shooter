@@ -10,6 +10,7 @@ import { SwordStrategy } from "../weapons/SwordStrategy";
 import { TNTStrategy } from "../weapons/TNTStrategy";
 import { XpMob } from "../mobs/XpMob";
 import { GameManager } from "../core/GameManager";
+import type { MapData } from "../maps/MapTypes";
 
 type WASD = {
   up: Phaser.Input.Keyboard.Key;
@@ -38,6 +39,11 @@ export default class GameScene extends Phaser.Scene {
   private _score: number = 0;
   private mobSpawnTimer!: Phaser.Time.TimerEvent;
   private gameManager!: GameManager;
+  private mapGraphics?: Phaser.GameObjects.Graphics;
+  private wallGroup?: Phaser.Physics.Arcade.StaticGroup;
+  private mapColliders: Phaser.Physics.Arcade.Collider[] = [];
+  private mapTileSize: number = 64;
+  private currentMap?: MapData;
 
   get score(): number {
     return this._score;
@@ -112,6 +118,9 @@ export default class GameScene extends Phaser.Scene {
       runChildUpdate: true,
     });
 
+    // 地圖初始化：使用已有地圖（若玩家匯入），否則載入預設配置
+    this.applyMapData(this.gameManager.getMapData() ?? this.createDefaultMap());
+
     // 輸入設定
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys({
@@ -152,11 +161,11 @@ export default class GameScene extends Phaser.Scene {
   }
 
   public handleResize(gameSize: Phaser.Structs.Size) {
-    const width = gameSize.width;
-    const height = gameSize.height;
+    const { width, height } = this.getMapDimensions(gameSize);
 
     // 更新物理世界邊界
     this.physics.world.setBounds(0, 0, width, height);
+    this.cameras.main.setBounds(0, 0, width, height);
 
     // 調整玩家位置避免跑出邊界
     if (this.playerObj?.sprite) {
@@ -170,6 +179,9 @@ export default class GameScene extends Phaser.Scene {
     this.gameManager.setPause(false);
     this.playerObj.sprite.setActive(true).setVisible(true); // 顯示玩家
 
+    // 讓相機跟隨玩家，避免大地圖時玩家中心點跑到畫面外
+    this.cameras.main.startFollow(this.playerObj.sprite, true, 0.1, 0.1);
+
     // 修正: 延遲武器初始化，確保 UIScene 元素在事件發送時已經存在。
     this.playerObj.setWeapon(new BowStrategy(), "bow");
     this.gameManager.notifyWeaponChange("bow", "🏹 弓");
@@ -178,6 +190,77 @@ export default class GameScene extends Phaser.Scene {
     this.gameManager.updateScore(this._score);
 
     this.startMobSpawning();
+  }
+
+  /**
+   * 匯入或切換地圖時呼叫，重建草地與牆壁。
+   */
+  public applyMapData(mapData: MapData) {
+    this.currentMap = mapData;
+
+    if (!this.mapGraphics) {
+      this.mapGraphics = this.add.graphics({ x: 0, y: 0 }).setDepth(0);
+    } else {
+      this.mapGraphics.clear();
+    }
+
+    if (!this.wallGroup) {
+      this.wallGroup = this.physics.add.staticGroup();
+    } else {
+      this.wallGroup.clear(true, true);
+    }
+
+    const tileSize = this.mapTileSize;
+    const rows = mapData.grid.length;
+    const cols = mapData.grid[0].length;
+    const mapWidth = cols * tileSize;
+    const mapHeight = rows * tileSize;
+
+    // 若地圖比畫面小，讓地圖整體置中
+    const viewWidth = this.scale.width;
+    const viewHeight = this.scale.height;
+    const offsetX = mapWidth < viewWidth ? (viewWidth - mapWidth) / 2 : 0;
+    const offsetY = mapHeight < viewHeight ? (viewHeight - mapHeight) / 2 : 0;
+
+    // 整體鋪一層草地背景（含偏移量）
+    this.mapGraphics.fillStyle(0x2d7a2d, 1);
+    this.mapGraphics.fillRect(offsetX, offsetY, mapWidth, mapHeight);
+
+    // 逐格放置牆壁
+    mapData.grid.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        if (cell !== "wall") return;
+        const worldX = offsetX + x * tileSize + tileSize / 2;
+        const worldY = offsetY + y * tileSize + tileSize / 2;
+        const wall = this.add
+          .rectangle(worldX, worldY, tileSize, tileSize, 0x555555, 1)
+          .setStrokeStyle(1, 0x777777)
+          .setDepth(20);
+        this.physics.add.existing(wall, true);
+        const body = wall.body as Phaser.Physics.Arcade.StaticBody;
+        body.setSize(tileSize, tileSize);
+        // 將碰撞箱往右下平移 0.5 格（半個 tile）
+        // 原本是以中心對齊 (-tileSize/2, -tileSize/2)，改成 (0,0) 代表整個 body 向右下偏移半格
+        body.setOffset(0, 0);
+        this.wallGroup!.add(wall);
+      });
+    });
+
+    // 調整世界邊界與相機（確保包含整個畫面與地圖）
+    const worldWidth = Math.max(viewWidth, mapWidth);
+    const worldHeight = Math.max(viewHeight, mapHeight);
+    this.physics.world.setBounds(0, 0, worldWidth, worldHeight);
+    this.cameras.main.setBounds(0, 0, worldWidth, worldHeight);
+
+    // 玩家置中到地圖中心
+    if (this.playerObj?.sprite) {
+      this.playerObj.sprite.setPosition(
+        offsetX + mapWidth / 2,
+        offsetY + mapHeight / 2
+      );
+    }
+
+    this.rebuildMapColliders();
   }
 
   private setupKeyHandlers() {
@@ -237,6 +320,9 @@ export default class GameScene extends Phaser.Scene {
 
     // 3. 怪物死亡事件監聽
     this.events.on("mob-die", this.handleMobDeath, this);
+
+    // 4. 地圖牆壁碰撞
+    this.rebuildMapColliders();
   }
 
   private startMobSpawning() {
@@ -247,6 +333,76 @@ export default class GameScene extends Phaser.Scene {
       loop: true,
       callback: () => this.spawnRandomMob(),
     });
+  }
+
+  private rebuildMapColliders() {
+    this.mapColliders.forEach((c) => c.destroy());
+    this.mapColliders = [];
+
+    if (!this.wallGroup) return;
+
+    // 玩家 / 怪物 vs 牆
+    this.mapColliders.push(
+      this.physics.add.collider(this.playerObj.sprite, this.wallGroup)
+    );
+    this.mapColliders.push(
+      this.physics.add.collider(this.mobGroup, this.wallGroup)
+    );
+
+    // 玩家子彈 vs 牆
+    this.mapColliders.push(
+      this.physics.add.collider(
+        this.playerObj.bullets,
+        this.wallGroup,
+        (bulletObj) => {
+          this.handleProjectileHitWall(bulletObj as Phaser.Physics.Arcade.Image);
+        }
+      )
+    );
+
+    // 骷髏箭矢 vs 牆
+    this.enemies.forEach((mob) => {
+      if (mob instanceof SkeletonMob && (mob as any).bullets) {
+        const bullets = (mob as any).bullets as Phaser.Physics.Arcade.Group;
+        this.mapColliders.push(
+          this.physics.add.collider(
+            bullets,
+            this.wallGroup!,
+            (projectileObj: any) => {
+              this.handleProjectileHitWall(
+                projectileObj as Phaser.Physics.Arcade.Image
+              );
+            }
+          )
+        );
+      }
+    });
+  }
+
+  /**
+   * 通用：任意投射物打到牆時的處理。
+   */
+  private handleProjectileHitWall(
+    projectile: Phaser.Physics.Arcade.Image & {
+      damage?: number;
+      explosionRadius?: number;
+    }
+  ) {
+    // TNT 打到牆時直接觸發爆炸
+    if (projectile.texture.key === "tnt") {
+      if (
+        projectile.damage !== undefined &&
+        projectile.explosionRadius !== undefined
+      ) {
+        this.processExplosion({
+          x: projectile.x,
+          y: projectile.y,
+          damage: projectile.damage!,
+          radius: projectile.explosionRadius!,
+        });
+      }
+    }
+    projectile.destroy();
   }
 
   update() {
@@ -635,5 +791,30 @@ export default class GameScene extends Phaser.Scene {
 
     mob.on("mob-die", this.handleMobDeath, this);
     mob.on("creeper-explode", this.processExplosion, this);
+  }
+
+  private getMapDimensions(
+    fallbackSize?: Phaser.Structs.Size
+  ): { width: number; height: number } {
+    if (this.currentMap) {
+      return {
+        width: this.currentMap.grid[0].length * this.mapTileSize,
+        height: this.currentMap.grid.length * this.mapTileSize,
+      };
+    }
+    const width = fallbackSize?.width ?? this.scale.width;
+    const height = fallbackSize?.height ?? this.scale.height;
+    return { width, height };
+  }
+
+  private createDefaultMap(): MapData {
+    const rows = 8;
+    const cols = 12;
+    const grid: ("wall" | "grass")[][] = Array.from({ length: rows }, (_, y) =>
+      Array.from({ length: cols }, (_, x) =>
+        x === 0 || y === 0 || x === cols - 1 || y === rows - 1 ? "wall" : "grass"
+      )
+    );
+    return { grid };
   }
 }
