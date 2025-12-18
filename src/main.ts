@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import GameScene from "./scenes/GameScene";
 import UIScene from "./scenes/UIScene";
+import SlidingPuzzleScene from "./scenes/SlidingPuzzleScene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -18,7 +19,7 @@ const config: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  scene: [GameScene, UIScene],
+  scene: [GameScene, UIScene, SlidingPuzzleScene],
 };
 
 const game = new Phaser.Game(config);
