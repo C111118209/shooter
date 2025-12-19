@@ -60,6 +60,9 @@
 | **策略模式 (Strategy)**  | `IWeaponStrategy` | 運行時切換不同攻擊行為。策略介面定義 `attack()` 方法，具體策略：`BowStrategy` (遠程單發弓箭)、`SwordStrategy` (近戰揮劍)、`TNTStrategy` (範圍爆炸)。玩家和怪物都可以使用武器策略，實現 `IWeaponHolder` 介面。 |
 | **裝飾器模式 (Decorator)** | `IPlayerDecorator` | 動態添加玩家屬性增益 (Buff/技能)。裝飾器介面定義 `apply()` 方法。具體裝飾器：`HealthBoostDecorator` (增加最大血量)、`HealingDecorator` (立即恢復血量)、`DamageBoostDecorator` (+5 攻擊力)、`SpeedBoostDecorator` (+20 移動速度)。效果可疊加，直接修改玩家物件屬性。 |
 | **觀察者模式 (Observer)** | `GameManager` (事件總線) | 實現事件發布/訂閱機制。`GameManager` 繼承自 `Phaser.Events.EventEmitter`，作為主題 (Subject) 負責發佈事件。事件類型：`game-started`、`game-paused`、`player-die`、`update-stats`、`weapon-change`。觀察者 (Observer)：`UIScene` 和其他場景，透過 `on()` 方法訂閱事件並更新 UI。提供方法：`emit()`, `on()`, `off()` (透過 Phaser EventEmitter)。 |
+| **指令模式 (Command)** | `SlidingPuzzleGame` | 封裝操作為物件，支援撤銷/重做功能。`MoveTileCommand` 封裝了移動操作，包含 `execute()` 和 `undo()` 方法。`CommandHistory` 儲存指令歷史，實現了「上一步」功能。當玩家移動滑塊時，創建一個 `MoveTileCommand` 物件並存入 `CommandHistory` 中。 |
+| **適配器模式 (Adapter)** | `MapFileAdapter` | 將不同格式的地圖檔（`.txt`, `.csv`, `.json`）轉換為統一的 `MapData` 介面。`MapFileAdapter` 根據檔案類型，選擇對應的具體適配器（`TxtMapAdapter`, `CsvMapAdapter`, `JsonMapAdapter`）進行解析，讓遊戲核心邏輯能以相同方式處理不同來源的地圖資料。 |
+| **模板模式 (Template)** | `SlidingPuzzleGame` | 定義遊戲玩法的演算法骨架，並將具體步驟延遲到子類別中實現。`SlidingPuzzleGame` 作為抽象類別，定義了 `startGame()`, `checkWinCondition()` 等核心流程。具體模式如 `TimedMode`（計時模式）和 `StepLimitMode`（步數限制模式）繼承它並實作各自的遊戲結束條件和 UI 更新邏輯，實現了不同玩法的複用與擴展。 |
 
 ---
 
