@@ -6,7 +6,6 @@ import {
   HealingDecorator,
   DamageBoostDecorator,
   SpeedBoostDecorator,
-  type IPlayerDecorator,
 } from "../player/IPlayerDecorator";
 import { GLOBAL_TEXT_STYLE } from "./GameScene";
 import { MapFileAdapter } from "../maps/MapFileAdapter";

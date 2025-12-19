@@ -40,7 +40,7 @@ export default class GameScene extends Phaser.Scene {
   private wallGroup?: Phaser.Physics.Arcade.StaticGroup;
   private mapColliders: Phaser.Physics.Arcade.Collider[] = [];
   private mapTileSize: number = 64;
-  private currentMap?: MapData;
+  // private currentMap?: MapData;
   private availableSpawnPoints: { x: number; y: number }[] = [];
   private coreIcon?: Phaser.Physics.Arcade.Sprite;
   private killsSinceLastCoreIcon: number = 0;
@@ -185,7 +185,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private applyMapData(mapData: MapData) {
-    this.currentMap = mapData;
+    // this.currentMap = mapData;
     if (this.mapGraphics) this.mapGraphics.destroy();
     this.mapGraphics = this.add.graphics({ x: 0, y: 0 }).setDepth(0);
     this.availableSpawnPoints = [];
@@ -294,7 +294,7 @@ export default class GameScene extends Phaser.Scene {
       this.input.keyboard
         ?.addKey(
           Phaser.Input.Keyboard.KeyCodes[
-          key as keyof typeof Phaser.Input.Keyboard.KeyCodes
+            key as keyof typeof Phaser.Input.Keyboard.KeyCodes
           ]
         )
         .on("down", () => {
@@ -534,7 +534,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private handleMobHitPlayer(_p: any, mob: BaseMob) {
-    this.playerObj.takeDamage(mob.attackDamage, this, mob);
+    this.playerObj.takeDamage(mob.attackDamage, this,mob);
   }
 
   private processExplosion(data: ExplosionData) {
@@ -579,6 +579,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private triggerMiniGame(player: any, icon: any) {
+    player;
     icon.destroy();
     this.coreIcon = undefined;
 

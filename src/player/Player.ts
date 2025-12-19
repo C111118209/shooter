@@ -68,7 +68,9 @@ export class Player {
     this.weapon = weapon;
     this.weaponSprite.setTexture(weaponKey);
     this.weaponSprite.setOrigin(weaponKey === "bow" ? 0.1 : 0.1, 0.5);
-    this.weaponSprite.setScale(weaponKey === "bow" ? 0.3 : (weaponKey === 'tnt' ? 0.2 : 0.4));
+    this.weaponSprite.setScale(
+      weaponKey === "bow" ? 0.3 : weaponKey === "tnt" ? 0.2 : 0.4
+    );
   }
 
   public attack(scene: Phaser.Scene, pointer: Phaser.Input.Pointer) {
@@ -84,6 +86,7 @@ export class Player {
     scene: Phaser.Scene,
     attacker?: Phaser.GameObjects.GameObject
   ) {
+    attacker;
     if (this.isDead || this.sprite.getData("isInvuln") || dmg === 0) return;
 
     this.health -= dmg;
@@ -131,7 +134,8 @@ export class Player {
       this.sprite.setVelocityX(-finalSpeed); // ⚠️ 使用 finalSpeed
     if (cursors.right?.isDown || wasd.right.isDown)
       this.sprite.setVelocityX(finalSpeed); // ⚠️ 使用 finalSpeed
-    if (cursors.up?.isDown || wasd.up.isDown) this.sprite.setVelocityY(-finalSpeed); // ⚠️ 使用 finalSpeed
+    if (cursors.up?.isDown || wasd.up.isDown)
+      this.sprite.setVelocityY(-finalSpeed); // ⚠️ 使用 finalSpeed
     if (cursors.down?.isDown || wasd.down.isDown)
       this.sprite.setVelocityY(finalSpeed); // ⚠️ 使用 finalSpeed
 
